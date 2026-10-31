@@ -19,22 +19,63 @@ import queue
 import threading
 import time
 from collections import deque
-from concurrent.futures import ThreadPoolExecutor
+import multiprocessing as mp
+from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, ThreadPoolExecutor, wait
+from concurrent.futures.process import BrokenProcessPool
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from . import ocr
 from .db import Database
-from .extractors import EXTRACTOR_VERSION, extract_text  # noqa: F401 (re-exported)
-from .resources import DEFAULT_PROFILE, PROFILES, Brake, lower_thread_priority
+from .extractors import EXTRACTOR_VERSION, extract_text, is_heavy  # noqa: F401 (re-exported)
+from .resources import CPU_COUNT, DEFAULT_PROFILE, PROFILES, Brake, lower_thread_priority
 
 log = logging.getLogger(__name__)
 
 BATCH_ROWS = 200  # rows per shard commit
+WRITE_BUDGET_CHARS = 24_000_000  # text waiting to be written, all shards together (~50 MB)
 BATCH_SECONDS = 1.0  # …or commit at least this often so results appear during a scan
 MAX_OCR_CHARS = 500_000  # OCR text kept per file
 OCR_DEFAULT_MAX_PAGES = ocr.DEFAULT_MAX_PAGES
 BRAKE_MAX_WAIT = 5.0  # after this long paused, let one item through (never hang)
+_SPAWN = mp.get_context("spawn")
+
+
+class _Budget:
+    """Counts characters in flight; acquire() waits while over the limit
+    (one oversized item may always pass, so nothing can deadlock)."""
+
+    def __init__(self, limit: int):
+        self.limit, self.used = limit, 0
+        self._cv = threading.Condition()
+
+    def acquire(self, n: int) -> None:
+        with self._cv:
+            while self.used and self.used + n > self.limit:
+                self._cv.wait(0.5)
+            self.used += n
+
+    def release(self, n: int) -> None:
+        with self._cv:
+            self.used = max(0, self.used - n)
+            self._cv.notify_all()
+
+
+def _helper_init() -> None:
+    """Helper processes (PDF readers): background priority, like the scan."""
+    try:
+        os.nice(10)
+    except (AttributeError, OSError):
+        pass
+    lower_thread_priority()
+
+
+def _helper_extract(path: str, size: int) -> str:
+    if os.environ.get("SA_TEST_HELPER_CRASH_ON") == os.path.basename(path):  # test-suite only
+        os._exit(3)
+    return extract_text(Path(path), size)
+
+
 SKIP_DIRS = {
     ".git", ".svn", ".hg", "node_modules", "__pycache__", ".venv", "venv", ".cache",
     ".idea", ".vscode", "dist", "build", ".next", ".tox", ".mypy_cache", ".pytest_cache",
@@ -95,6 +136,7 @@ class Indexer:
         self.skip: dict[str, tuple[float, int]] = {}
         self.before_extract = None
         self.careful = False  # one file at a time (used after a crash)
+        self.exit_on_helper_crash = False  # set in the worker process
         self._last_stop = 0.0
         self._wake = threading.Event()
         self._brake: Brake | None = None
@@ -251,7 +293,11 @@ class Indexer:
             return 0
         self.progress.update(phase="indexing", total=len(todo), done=0)
         shards = self.db.shards
-        queues: list[queue.Queue] = [queue.Queue(maxsize=BATCH_ROWS) for _ in shards]
+        # Unbounded per-shard queues share one memory budget: a shard that is busy
+        # committing never stalls the others (with a small fixed queue per shard,
+        # one full queue blocked the whole pipeline and writes ran one at a time).
+        queues: list[queue.Queue] = [queue.Queue() for _ in shards]
+        budget = _Budget(WRITE_BUDGET_CHARS)
         write_slots = threading.Semaphore(profile.write_parallel)
         errors: list[BaseException] = []
 
@@ -276,6 +322,8 @@ class Indexer:
                             shard.upsert_many(batch)
                     except BaseException as exc:  # keep draining so producers never block
                         errors.append(exc)
+                    finally:
+                        budget.release(sum(len(r[2]) + 1 for r in batch))
                     batch, last = [], time.monotonic()
                 if row is None:
                     return
@@ -290,7 +338,7 @@ class Indexer:
                 return path, name, "", mtime, size  # crashed before: name only
             if self.before_extract:
                 self.before_extract(path)
-            return path, name, self._with_ocr(path, extract_text(Path(path), size), mtime, size), mtime, size
+            return path, name, extract_text(Path(path), size), mtime, size
 
         done = 0
         started = time.monotonic()
@@ -298,8 +346,15 @@ class Indexer:
         in_flight = 1 if self.careful else workers * 4
         pool = ThreadPoolExecutor(workers, thread_name_prefix="extract",
                                   initializer=lower_thread_priority)
+        # Readers that hold Python's GIL or may not run twice in one process
+        # (pdfium) get helper processes, so they too use several CPU cores.
+        helpers = None
+        n_helpers = 0 if self.careful else min(profile.extract_workers, CPU_COUNT)
+        if n_helpers > 1 and any(is_heavy(t[0]) for t in todo):
+            helpers = ProcessPoolExecutor(n_helpers, mp_context=_SPAWN, initializer=_helper_init)
+            in_flight += n_helpers * 2
         try:
-            pending: deque = deque()
+            pending: set = set()
             items = iter(todo)
             while not self._stop.is_set():
                 brake.wait(max_wait=BRAKE_MAX_WAIT)
@@ -307,18 +362,45 @@ class Indexer:
                     nxt = next(items, None)
                     if nxt is None:
                         break
-                    pending.append(pool.submit(extract, nxt))
+                    path, name, mtime, size = nxt
+                    if helpers is not None and is_heavy(path) and self.skip.get(path) != (mtime, size):
+                        if self.before_extract:
+                            self.before_extract(path)
+                        fut = helpers.submit(_helper_extract, path, size)
+                        fut.item = nxt
+                    else:
+                        fut = pool.submit(extract, nxt)
+                    pending.add(fut)
                 if not pending:
                     break
-                path, name, text, mtime, size = pending.popleft().result()
-                queues[self.db.shard_for(path).index].put((path, name, text, mtime, size))
-                done += 1
-                elapsed = time.monotonic() - started
-                rate = done / elapsed if elapsed > 0 else 0.0
-                self.progress.update(done=done, current=name, rate=round(rate, 1),
-                                     eta_seconds=round((len(todo) - done) / rate) if rate else None)
+                finished, pending = wait(pending, timeout=1.0, return_when=FIRST_COMPLETED)
+                for fut in finished:
+                    item = getattr(fut, "item", None)
+                    if item is None:
+                        path, name, text, mtime, size = fut.result()
+                    else:
+                        path, name, mtime, size = item
+                        try:
+                            text = fut.result()
+                        except BrokenProcessPool:
+                            # A helper died on some file (corrupt PDF…). In the worker
+                            # process: exit, so the supervisor restarts in careful mode
+                            # and finds the culprit. Otherwise read it here.
+                            if self.exit_on_helper_crash:
+                                os._exit(4)
+                            text = extract_text(Path(path), size)
+                    text = self._with_ocr(path, text, mtime, size)
+                    budget.acquire(len(text) + 1)
+                    queues[self.db.shard_for(path).index].put((path, name, text, mtime, size))
+                    done += 1
+                    elapsed = time.monotonic() - started
+                    rate = done / elapsed if elapsed > 0 else 0.0
+                    self.progress.update(done=done, current=name, rate=round(rate, 1),
+                                         eta_seconds=round((len(todo) - done) / rate) if rate else None)
         finally:
             pool.shutdown(wait=True, cancel_futures=True)
+            if helpers is not None:
+                helpers.shutdown(wait=True, cancel_futures=True)
             for q in queues:
                 q.put(None)
             for w in writers:

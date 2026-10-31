@@ -1,0 +1,30 @@
+[package]
+name = "sa_native"
+version = "0.1.0"
+edition = "2021"
+description = "Fast text extraction for Search Anything (xlsx, docx, pptx)"
+license = "MIT"
+publish = false
+
+[lib]
+name = "sa_native"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+calamine = { version = "0.37", features = ["dates"] }
+roxmltree = "0.21"
+zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+
+[dependencies.pyo3]
+version = "0.30"
+features = ["extension-module", "abi3-py310"]
+optional = true
+
+[features]
+default = ["python"]
+python = ["pyo3"]
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+opt-level = 3

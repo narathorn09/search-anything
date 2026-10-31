@@ -196,10 +196,39 @@ def run(root: Path, profile_types: bool = True) -> dict:
     report["write_per_file_ms"] = took / len(rows_in) * 1000
     print(f"\nwrite (FTS, 1 thread):  {fmt(took)} for {len(rows_in):,} files, {chars / 1e6:.0f} M chars "
           f"-> {fmt(took / len(rows_in))}/file, est. all files {fmt(took / len(rows_in) * len(files))}")
+    del rows_in  # free it before the scans below
     db.close()
+    shutil.rmtree(tmp, ignore_errors=True)
+
+    full_scans(root, report)
+
+    if profile_types:
+        for suffix in (".xlsx", ".docx", ".pptx", ".pdf", ".html"):
+            paths = by_type.get(suffix, [])[:40]
+            if not paths:
+                continue
+            prof = cProfile.Profile()
+            prof.enable()
+            for p in paths:
+                extract_text(p)
+            prof.disable()
+            out = io.StringIO()
+            pstats.Stats(prof, stream=out).sort_stats("tottime").print_stats(6)
+            lines = [l for l in out.getvalue().splitlines() if l.strip() and ("{" in l or ".py" in l)][:6]
+            print(f"\nhotspots {suffix}:")
+            for l in lines:
+                print("   ", l.strip()[:150])
+    return report
+
+
+def full_scans(root: Path, report: dict) -> None:
+    from search_anything.db import Database
+    from search_anything.indexer import ScanSettings
+    from search_anything.worker import ProcessIndexer
 
     # full scans
-    for label, cls, profile in (("thread, balanced", Indexer, "balanced"), ("thread, fast", Indexer, "fast"),
+    # The default: a separate worker process (its own RAM is what the brake watches).
+    for label, cls, profile in (("worker process, balanced", ProcessIndexer, "balanced"),
                                 ("worker process, fast", ProcessIndexer, "fast")):
         d = Path(tempfile.mkdtemp())
         db = Database(d / "s.db")
@@ -225,30 +254,18 @@ def run(root: Path, profile_types: bool = True) -> dict:
                 print(f"search {q!r}: median {fmt(statistics.median(lat))}")
                 report[f"search:{q}"] = statistics.median(lat)
         db.close()
+        shutil.rmtree(d, ignore_errors=True)
 
-    if profile_types:
-        for suffix in (".xlsx", ".docx", ".pptx", ".pdf", ".html"):
-            paths = by_type.get(suffix, [])[:40]
-            if not paths:
-                continue
-            prof = cProfile.Profile()
-            prof.enable()
-            for p in paths:
-                extract_text(p)
-            prof.disable()
-            out = io.StringIO()
-            pstats.Stats(prof, stream=out).sort_stats("tottime").print_stats(6)
-            lines = [l for l in out.getvalue().splitlines() if l.strip() and ("{" in l or ".py" in l)][:6]
-            print(f"\nhotspots {suffix}:")
-            for l in lines:
-                print("   ", l.strip()[:150])
-    return report
 
 
 if __name__ == "__main__":
     cmd, where = sys.argv[1], Path(sys.argv[2])
     if cmd == "make":
         make(where)
+    elif cmd == "scan":  # end-to-end scans only
+        from search_anything.extractors import NATIVE
+        print("native (Rust) readers:", NATIVE)
+        full_scans(where, {})
     else:
         result = run(where)
         if len(sys.argv) > 3:

@@ -11,6 +11,7 @@ from __future__ import annotations
 import html
 import json
 import logging
+import os
 import re
 import threading
 import zipfile
@@ -336,11 +337,56 @@ def _zip(path: Path) -> str:
         return "\n".join(n for n in z.namelist() if not n.endswith("/"))[:MAX_TEXT_CHARS]
 
 
+# ---------------------------------------------------------- native (Rust)
+# The optional `sa_native` module (native/ in this repo, written in Rust) gives
+# exactly the same text for Word/Excel/PowerPoint files, 6-30x faster and
+# without holding the GIL, so scan threads really run in parallel. Without it
+# (or with SA_NATIVE=0) the Python readers above are used. If the Rust reader
+# fails on a file, the Python reader gets a try too.
+try:
+    if os.environ.get("SA_NATIVE", "1") == "0":
+        raise ImportError("disabled by SA_NATIVE=0")
+    import sa_native as _native
+except ImportError:
+    _native = None
+
+NATIVE = _native is not None
+
+
+def _with_native(native_fn, python_fn):
+    def handler(path: Path) -> str:
+        try:
+            return native_fn(str(path), MAX_TEXT_CHARS)
+        except Exception as exc:
+            log.debug("native reader failed for %s (%s); using Python", path, exc)
+            return python_fn(path)
+
+    handler.__name__ = python_fn.__name__ + "_native"
+    return handler
+
+
+if _native is not None:
+    _docx_fast = _with_native(_native.docx_text, _docx)
+    _xlsx_fast = _with_native(_native.xlsx_text, _xlsx)
+    _pptx_fast = _with_native(_native.pptx_text, _pptx)
+else:
+    _docx_fast, _xlsx_fast, _pptx_fast = _docx, _xlsx, _pptx
+
 HANDLERS = {
-    ".pdf": _pdf, ".docx": _docx, ".xlsx": _xlsx, ".xlsm": _xlsx, ".pptx": _pptx,
+    ".pdf": _pdf, ".docx": _docx_fast, ".xlsx": _xlsx_fast, ".xlsm": _xlsx_fast, ".pptx": _pptx_fast,
     ".rtf": _rtf, ".epub": _epub, ".eml": _eml, ".ipynb": _ipynb, ".zip": _zip,
     **{e: _html for e in HTML_EXTENSIONS}, **{e: _odf for e in ODF_EXTENSIONS},
 }
+
+
+OFFICE_EXTENSIONS = {".docx", ".xlsx", ".xlsm", ".pptx"}
+
+
+def is_heavy(path: str) -> bool:
+    """Readers worth a helper process: pdfium (one at a time per process), and
+    the Python Office readers when the Rust module is missing (they hold the GIL)."""
+    suffix = os.path.splitext(path)[1].lower()
+    return suffix == ".pdf" or (not NATIVE and suffix in OFFICE_EXTENSIONS)
 
 
 def is_plain_text_type(path: Path) -> bool:

@@ -1,6 +1,11 @@
 # Search Anything — server mode image.
 # Data (notes, passwords, uploads, index) lives in /data: mount a persistent
 # volume there, or it is lost when the container is replaced.
+# Stage 1: the Rust text readers (native/), built as a Python wheel.
+FROM ghcr.io/pyo3/maturin:latest AS native
+COPY native /native
+RUN maturin build --release --manifest-path /native/Cargo.toml --out /wheels
+
 FROM python:3.13-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -16,6 +21,9 @@ RUN apt-get update \
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install -r requirements.txt
+# Fast Word/Excel/PowerPoint readers (falls back to Python if this is missing).
+COPY --from=native /wheels /wheels
+RUN pip install /wheels/*.whl && rm -rf /wheels
 
 COPY search_anything ./search_anything
 
