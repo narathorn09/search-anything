@@ -250,3 +250,46 @@ def test_old_single_file_database_is_migrated(tmp_path):
     conn.commit(); conn.close()
     db = Database(path)
     assert db.counts()["file"] == 0 and db.search("old.txt") == []
+
+
+def test_sorting(tmp_path):
+    root = tmp_path / "s"
+    root.mkdir()
+    import os as _os
+    for i, (name, size) in enumerate([("beta.txt", 30), ("alpha.txt", 10), ("gamma.txt", 20)]):
+        p = root / name
+        p.write_text("kiwi " + "x" * size)
+        _os.utime(p, (1_000_000 + i, 1_000_000 + i))  # beta oldest, gamma newest
+    c = make_client(tmp_path, folders=[str(root)])
+    c.app.state.indexer.run()
+    c.post("/api/items", json={"kind": "note", "title": "Kiwi note", "content": "kiwi"})
+    q = lambda sort, kind=None: ids(c.get("/api/search", params={"q": "kiwi", "sort": sort, **({"kind": kind} if kind else {})}))
+    assert q("name", "file") == ["alpha.txt", "beta.txt", "gamma.txt"]
+    assert q("name_desc", "file") == ["gamma.txt", "beta.txt", "alpha.txt"]
+    assert q("newest", "file") == ["gamma.txt", "alpha.txt", "beta.txt"]
+    assert q("oldest", "file") == ["beta.txt", "alpha.txt", "gamma.txt"]
+    assert q("largest", "file") == ["beta.txt", "gamma.txt", "alpha.txt"]
+    assert q("type")[:3] == ["alpha.txt", "beta.txt", "gamma.txt"] and q("type")[-1] == "Kiwi note"
+    assert q("newest")[0] == "Kiwi note"  # just created
+    assert c.get("/api/search", params={"q": "kiwi", "sort": "random"}).status_code == 422
+
+
+def test_lines_for_viewer(tmp_path):
+    root = tmp_path / "v"
+    root.mkdir()
+    (root / "code.py").write_text("import os\n\ndef kiwi():\n    return 'Kiwi kiwi'\n")
+    import docx as _docx
+    d = _docx.Document(); d.add_paragraph("หน้าแรก"); d.add_paragraph("kiwi ในเอกสาร"); d.save(root / "doc.docx")
+    c = make_client(tmp_path, folders=[str(root)])
+    c.app.state.indexer.run()
+    by_title = {r["title"]: r for r in c.get("/api/search", params={"q": "kiwi"}).json()["results"]}
+    code = c.get(f"/api/items/{by_title['code.py']['id']}/lines").json()
+    assert code["source"] == "disk" and code["total_lines"] == 4
+    assert code["lines"][2] == "def kiwi():" and code["lines"][1] == ""  # exact lines, blank kept
+    doc = c.get(f"/api/items/{by_title['doc.docx']['id']}/lines").json()
+    assert doc["source"] == "index" and doc["lines"] == ["หน้าแรก", "kiwi ในเอกสาร"]
+    note = c.post("/api/items", json={"kind": "note", "title": "n", "content": "a\nkiwi b"}).json()
+    assert c.get(f"/api/items/{note['id']}/lines").json()["lines"] == ["a", "kiwi b"]
+    bm = c.post("/api/items", json={"kind": "bookmark", "title": "b", "url": "x.com"}).json()
+    assert c.get(f"/api/items/{bm['id']}/lines").status_code == 400
+    assert "เอกสาร" in c.get("/api/status").json()["supported_formats"]

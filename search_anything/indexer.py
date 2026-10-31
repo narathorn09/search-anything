@@ -24,64 +24,18 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from .db import Database
+from .extractors import EXTRACTOR_VERSION, extract_text  # noqa: F401 (re-exported)
 from .resources import DEFAULT_PROFILE, PROFILES, Brake, lower_thread_priority
 
 log = logging.getLogger(__name__)
 
-TEXT_EXTENSIONS = {
-    ".txt", ".md", ".markdown", ".rst", ".csv", ".tsv", ".log", ".json", ".yaml", ".yml",
-    ".toml", ".ini", ".cfg", ".conf", ".xml", ".html", ".htm", ".css",
-    ".py", ".js", ".ts", ".tsx", ".jsx", ".java", ".kt", ".go", ".rs", ".c", ".h", ".cpp",
-    ".hpp", ".cs", ".php", ".rb", ".swift", ".sh", ".bash", ".zsh", ".ps1", ".sql", ".vue",
-    ".svelte", ".dart", ".lua", ".r", ".tex",
-}
+BATCH_ROWS = 200  # rows per shard commit
+BATCH_SECONDS = 1.0  # …or commit at least this often so results appear during a scan
+BRAKE_MAX_WAIT = 5.0  # after this long paused, let one item through (never hang)
 SKIP_DIRS = {
     ".git", ".svn", ".hg", "node_modules", "__pycache__", ".venv", "venv", ".cache",
     ".idea", ".vscode", "dist", "build", ".next", ".tox", ".mypy_cache", ".pytest_cache",
 }
-MAX_CONTENT_BYTES = 20 * 1024 * 1024  # don't read content of files bigger than this
-MAX_TEXT_CHARS = 500_000  # cap stored text per file
-MAX_PDF_PAGES = 300  # very long PDFs: index the first pages only (bounded memory)
-BATCH_ROWS = 200  # rows per shard commit
-BATCH_SECONDS = 1.0  # …or commit at least this often so results appear during a scan
-BRAKE_MAX_WAIT = 5.0  # after this long paused, let one item through (never hang)
-
-
-def extract_text(path: Path, size: int | None = None) -> str:
-    """Return the searchable text content of a file ('' if unsupported)."""
-    suffix = path.suffix.lower()
-    try:
-        if (size if size is not None else path.stat().st_size) > MAX_CONTENT_BYTES:
-            return ""
-        if suffix in TEXT_EXTENSIONS:
-            raw = path.read_bytes()
-            if b"\x00" in raw[:4096]:
-                return ""
-            for encoding in ("utf-8", "cp874", "latin-1"):
-                try:
-                    return raw.decode(encoding)[:MAX_TEXT_CHARS]
-                except UnicodeDecodeError:
-                    continue
-        if suffix == ".pdf":
-            from pypdf import PdfReader
-
-            reader = PdfReader(str(path))
-            parts, total = [], 0
-            for i, page in enumerate(reader.pages):
-                if i >= MAX_PDF_PAGES or total > MAX_TEXT_CHARS:
-                    break
-                text = page.extract_text() or ""
-                parts.append(text)
-                total += len(text)
-            return "\n".join(parts)[:MAX_TEXT_CHARS]
-        if suffix == ".docx":
-            import docx
-
-            document = docx.Document(str(path))
-            return "\n".join(p.text for p in document.paragraphs)[:MAX_TEXT_CHARS]
-    except Exception as exc:  # corrupt / locked / unreadable files
-        log.debug("could not extract %s: %s", path, exc)
-    return ""
 
 
 @dataclass
@@ -94,6 +48,7 @@ class IndexStats:
     finished_at: float = 0.0
     paused_seconds: float = 0.0
     profile: str = DEFAULT_PROFILE
+    restarts: int = 0  # worker process restarts during this scan (process mode)
     errors: list[str] = field(default_factory=list)
 
 
@@ -116,14 +71,20 @@ class ScanSettings:
 
 
 class Indexer:
-    def __init__(self, db: Database, folders: list[str] | None = None, settings: ScanSettings | None = None):
+    def __init__(self, db: Database, folders: list[str] | None = None, settings: ScanSettings | None = None,
+                 stop_event=None):
         self.db = db
         self._folders = [str(Path(f).expanduser().resolve()) for f in (folders or [])]
         self.settings = settings or ScanSettings()
         self._run_lock = threading.Lock()
         self._state_lock = threading.Lock()
         self._queued = False
-        self._stop = threading.Event()
+        self._stop = stop_event if stop_event is not None else threading.Event()
+        # Set by the worker process: files to index by name only (they crashed
+        # a previous scan), and a hook called right before each file is read.
+        self.skip: dict[str, tuple[float, int]] = {}
+        self.before_extract = None
+        self.careful = False  # one file at a time (used after a crash)
         self._last_stop = 0.0
         self._wake = threading.Event()
         self._brake: Brake | None = None
@@ -218,6 +179,8 @@ class Indexer:
         start = time.time()
         self.progress = {"phase": "walking", "scanned": 0, "done": 0, "total": 0, "started_at": start,
                          "current": "", "rate": 0.0, "eta_seconds": None, "profile": profile.key}
+        # A newer extractor reads more formats: read every file again once.
+        reextract = self.db.get_meta("extractor_version", 1) < EXTRACTOR_VERSION
         try:
             known = self.db.file_index()
             seen: set[str] = set()
@@ -235,7 +198,7 @@ class Indexer:
                             break
                         brake.wait(memory_only=True, max_wait=BRAKE_MAX_WAIT)
                     previous = known.get(path)
-                    if previous and previous[1] == st.st_mtime and previous[2] == st.st_size:
+                    if not reextract and previous and previous[1] == st.st_mtime and previous[2] == st.st_size:
                         continue
                     todo.append((path, name, st.st_mtime, st.st_size))
                 if self._stop.is_set():
@@ -252,6 +215,8 @@ class Indexer:
                 stats.removed = len(stale)
             stats.added_or_updated = self._index(todo, profile, brake)
             stats.stopped = self._stop.is_set()
+            if reextract and not stats.stopped:
+                self.db.set_meta("extractor_version", EXTRACTOR_VERSION)
         finally:
             stats.seconds = round(time.time() - start, 2)
             stats.finished_at = time.time()
@@ -304,12 +269,17 @@ class Indexer:
 
         def extract(item):
             path, name, mtime, size = item
+            if self.skip.get(path) == (mtime, size):
+                return path, name, "", mtime, size  # crashed before: name only
+            if self.before_extract:
+                self.before_extract(path)
             return path, name, extract_text(Path(path), size), mtime, size
 
         done = 0
         started = time.monotonic()
-        in_flight = profile.extract_workers * 4
-        pool = ThreadPoolExecutor(profile.extract_workers, thread_name_prefix="extract",
+        workers = 1 if self.careful else profile.extract_workers
+        in_flight = 1 if self.careful else workers * 4
+        pool = ThreadPoolExecutor(workers, thread_name_prefix="extract",
                                   initializer=lower_thread_priority)
         try:
             pending: deque = deque()

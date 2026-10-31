@@ -107,13 +107,13 @@ class Brake:
         """Why scanning should pause right now ('' = go ahead)."""
         p = self.profile
         if self.ram_mb > p.max_ram_mb:
-            return f"แอปใช้ RAM {self.ram_mb:.0f} MB เกินขีดจำกัด {p.max_ram_mb} MB"
+            return f"ตัวสแกนใช้ RAM {self.ram_mb:.0f} MB เกินขีดจำกัด {p.max_ram_mb} MB"
         if self.free_ram_mb < MIN_FREE_RAM_MB:
             return f"RAM ว่างของเครื่องเหลือ {self.free_ram_mb:.0f} MB"
         if memory_only:
             return ""
         if self.cpu > p.max_cpu:
-            return f"แอปใช้ CPU {self.cpu:.0f}% เกินขีดจำกัด {p.max_cpu}%"
+            return f"ตัวสแกนใช้ CPU {self.cpu:.0f}% เกินขีดจำกัด {p.max_cpu}%"
         if p.yield_to_system and self.system_cpu > BUSY_SYSTEM_CPU:
             return f"เครื่องกำลังทำงานหนัก (CPU รวม {self.system_cpu:.0f}%)"
         return ""

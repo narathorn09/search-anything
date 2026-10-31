@@ -24,6 +24,8 @@ const ICONS = {
   keyboard: '<rect x="2.5" y="6" width="19" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/>',
   activity: '<path d="M3 12h4l3-8 4 16 3-8h4"/>',
   reset: '<path d="M4 12a8 8 0 1 0 2.4-5.7L4 8.5"/><path d="M4 4v4.5h4.5"/>',
+  lines: '<path d="M8 6h12M8 12h12M8 18h8"/><path d="M4 6h.01M4 12h.01M4 18h.01"/>',
+  check: '<path d="m5 12 5 5 9-10"/>',
 };
 const icon = (name) => {
   const s = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -251,7 +253,7 @@ async function search() {
     return;
   }
   searchAbort = new AbortController();
-  const params = new URLSearchParams({ q, kind: state.kind, limit: prefs.resultLimit });
+  const params = new URLSearchParams({ q, kind: state.kind, limit: prefs.resultLimit, sort: prefs.sortBy });
   try {
     const data = await api(`/api/search?${params}`, { signal: searchAbort.signal });
     if (seq !== state.seq) return; // a newer search already finished
@@ -299,7 +301,9 @@ function renderResults() {
       el("div", { class: "copy" },
         el("div", { class: "title" }, highlight(r.title, t)),
         meta.length ? el("div", { class: "meta" }, meta.map((m, j) => el("span", { class: j ? "dot" : "" }, highlight(m, t)))) : null,
-        r.snippet && r.kind !== "password" && t.length ? el("div", { class: "snip" }, highlight(r.snippet, t)) : null));
+        r.snippet && r.kind !== "password" && t.length ? el("div", { class: "snip" }, highlight(r.snippet, t)) : null),
+      canView(r) ? el("div", { class: "row-actions" },
+        btn("ดูเนื้อหา", (e) => { e.stopPropagation(); openViewer(r); }, "secondary sm", "lines", { title: "ดูเนื้อหาพร้อมเลขบรรทัด" })) : null);
     ul.append(li);
   });
 }
@@ -374,6 +378,7 @@ async function showDetail(id) {
       el("div", {}, el("strong", {}, fmtShortDate(item.mtime)), el("span", {}, "แก้ไขล่าสุด"))));
     parts.push(el("div", { class: "actions" },
       btn(state.status.mode === "local" ? "เปิดไฟล์" : "ดาวน์โหลด", () => openFile(item.id), "primary", "open"),
+      btn("ดูเนื้อหา", () => openViewer(item), "secondary", "lines"),
       btn("คัดลอก path", () => copy(item.path, "คัดลอก path แล้ว"), "secondary", "copy"),
       item.uploaded ? btn("ลบไฟล์", () => deleteItem(item), "danger", "trash") : null));
     parts.push(item.content
@@ -409,6 +414,7 @@ async function showDetail(id) {
   if (item.content) parts.push(el("pre", {}, highlight(item.content, t)));
   parts.push(el("div", { class: "sub" }, `แก้ไขล่าสุด ${fmtDate(item.updated_at)}`));
   parts.push(el("div", { class: "actions" },
+    item.kind === "note" ? btn("ดูเนื้อหา", () => openViewer(item), "secondary", "lines") : null,
     btn("แก้ไข", () => editItem(item.id), "secondary", "edit"),
     btn("ลบ", () => deleteItem(item), "danger", "trash")));
   box.append(...parts.map((p, i) => withReveal(p, i)));
@@ -485,6 +491,146 @@ function toggleAddMenu(open = $("#add-menu").classList.contains("hidden")) {
   $("#add-btn").setAttribute("aria-expanded", String(open));
 }
 
+// ------------------------------------------------------------------- sort
+const SORT_OPTIONS = [
+  ["relevance", "เกี่ยวข้องที่สุด"], ["newest", "แก้ไขล่าสุด"], ["oldest", "เก่าที่สุด"],
+  ["name", "ชื่อ ก→ฮ / A→Z"], ["name_desc", "ชื่อ ฮ→ก / Z→A"], ["largest", "ขนาดใหญ่สุด"], ["type", "ประเภท"],
+];
+
+function updateSortLabel() {
+  const found = SORT_OPTIONS.find(([v]) => v === prefs.sortBy) || SORT_OPTIONS[0];
+  $("#sort-label").textContent = found[1];
+}
+
+function toggleSortMenu(open = $("#sort-menu").classList.contains("hidden")) {
+  const menu = $("#sort-menu");
+  if (open) {
+    menu.replaceChildren(...SORT_OPTIONS.map(([value, label]) => el("button", {
+      type: "button", class: "menu-item", role: "menuitemradio", "aria-checked": String(value === prefs.sortBy),
+      onclick: () => { toggleSortMenu(false); setPref("sortBy", value); },
+    }, label, (() => { const c = icon("check"); c.classList.add("check"); return c; })())));
+    menu.classList.remove("hidden");
+    (menu.querySelector('[aria-checked="true"]') || menu.querySelector("button")).focus();
+  } else {
+    menu.classList.add("hidden");
+  }
+  $("#sort-btn").setAttribute("aria-expanded", String(open));
+}
+
+// ----------------------------------------------------------------- viewer
+const canView = (r) => r && (r.kind === "file" || r.kind === "note");
+const viewerOpen = () => !$("#viewer").classList.contains("hidden");
+const viewer = { data: null, hits: [], current: -1, lineEls: [] };
+
+async function openViewer(item) {
+  let data;
+  try { data = await api(`/api/items/${item.id}/lines`); }
+  catch (e) { return toast(e.message); }
+  viewer.data = data;
+  $("#viewer .viewer-tile").replaceChildren(tile(data.kind));
+  $("#viewer-title").textContent = data.title;
+  const badge = data.kind === "note" ? "โน้ต" : data.source === "disk" ? "จากไฟล์จริง — เลขบรรทัดตรงกับไฟล์" : "ข้อความที่ดึงจากเอกสาร";
+  $("#viewer-sub").replaceChildren(el("span", { class: "badge" }, badge),
+    `${data.total_lines.toLocaleString()} บรรทัด`, data.path ? ` · ${data.path}` : "");
+  const code = $("#viewer-code");
+  code.classList.toggle("mono", data.source === "disk");
+  code.style.setProperty("--gutter", `${String(data.total_lines).length + 1}ch`);
+  $("#viewer-line").max = data.lines.length;
+  $("#viewer-line").value = "";
+  $("#viewer-q").value = $("#q").value.trim();
+  $("#viewer").classList.remove("hidden");
+  renderViewer(true);
+  $("#viewer-q").focus();
+}
+
+function closeViewer() {
+  $("#viewer").classList.add("hidden");
+  $("#viewer-code").replaceChildren();
+  $("#viewer-hits").replaceChildren();
+  viewer.data = null;
+  viewer.lineEls = [];
+  $("#q").focus();
+}
+
+/** Count matches per line and render lines + the list of matching lines. */
+function renderViewer(jumpToFirst = false) {
+  const data = viewer.data;
+  if (!data) return;
+  const words = $("#viewer-q").value.trim().split(/\s+/).filter(Boolean);
+  const re = words.length ? new RegExp(words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|"), "gi") : null;
+  viewer.hits = [];
+  let total = 0;
+  const frag = document.createDocumentFragment();
+  viewer.lineEls = data.lines.map((line, i) => {
+    const n = re ? (line.match(re) || []).length : 0;
+    if (n) { viewer.hits.push({ line: i, count: n }); total += n; }
+    const row = el("div", { class: `vl${n ? " has-hit" : ""}`, "data-line": i + 1 },
+      el("span", { class: "ln", title: "คัดลอกลิงก์บรรทัด" }, i + 1),
+      el("span", { class: "lt" }, n ? highlight(line, words) : line));
+    frag.append(row);
+    return row;
+  });
+  if (data.truncated) frag.append(el("div", { class: "viewer-note" }, `แสดง ${data.lines.length.toLocaleString()} บรรทัดแรกจาก ${data.total_lines.toLocaleString()} บรรทัด`));
+  $("#viewer-code").replaceChildren(frag);
+  $("#viewer-count").replaceChildren(!words.length ? "พิมพ์คำเพื่อค้นในไฟล์"
+    : total ? el("span", {}, "พบ ", el("strong", {}, total.toLocaleString()), " ครั้ง ใน ", el("strong", {}, viewer.hits.length.toLocaleString()), " บรรทัด")
+    : "ไม่พบในไฟล์นี้");
+  const list = $("#viewer-hits");
+  list.replaceChildren(...(viewer.hits.length ? viewer.hits.slice(0, 2000).map((h, k) => {
+    const text = data.lines[h.line];
+    const m = re ? text.search(re) : 0;
+    const start = Math.max(0, m - 24);
+    return el("button", { type: "button", class: "hit", "data-k": k, onclick: () => gotoHit(k) },
+      el("span", { class: "ln" }, h.line + 1),
+      el("span", { class: "txt" }, highlight((start ? "…" : "") + text.slice(start, start + 140).trim(), words)),
+      el("span", { class: "n", title: `${h.count} ครั้งในบรรทัดนี้` }, h.count));
+  }) : [el("div", { class: "empty" }, words.length ? "ไม่มีบรรทัดที่ตรง" : "บรรทัดที่เจอคำค้นจะแสดงที่นี่ กดเพื่อกระโดดไปบรรทัดนั้น")]));
+  viewer.current = -1;
+  if (jumpToFirst && viewer.hits.length) gotoHit(0);
+  else $("#viewer-code").scrollTop = 0;
+}
+
+function gotoLine(lineNo, flash = true) {
+  const elx = viewer.lineEls[lineNo - 1];
+  if (!elx) return;
+  elx.scrollIntoView({ block: "center", inline: "nearest" });
+  if (flash) { elx.classList.remove("flash"); void elx.offsetWidth; elx.classList.add("flash"); }
+}
+
+function gotoHit(k) {
+  if (!viewer.hits.length) return;
+  k = (k + viewer.hits.length) % viewer.hits.length; // wrap around
+  const prev = viewer.hits[viewer.current];
+  if (prev) viewer.lineEls[prev.line]?.classList.remove("current");
+  document.querySelector(".hit.current")?.classList.remove("current");
+  viewer.current = k;
+  const hit = viewer.hits[k];
+  viewer.lineEls[hit.line].classList.add("current");
+  gotoLine(hit.line + 1);
+  const item = document.querySelector(`.hit[data-k="${k}"]`);
+  if (item) { item.classList.add("current"); item.scrollIntoView({ block: "nearest", inline: "nearest" }); }
+  $("#viewer-line").value = hit.line + 1;
+}
+
+let viewerDebounce;
+$("#viewer-q").addEventListener("input", () => { clearTimeout(viewerDebounce); viewerDebounce = setTimeout(() => renderViewer(true), 150); });
+$("#viewer-q").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { e.preventDefault(); gotoHit(viewer.current + (e.shiftKey ? -1 : 1)); }
+});
+$("#viewer").addEventListener("keydown", (e) => {
+  if (e.key === "F3" || (e.key.toLowerCase() === "g" && (e.ctrlKey || e.metaKey))) { e.preventDefault(); gotoHit(viewer.current + (e.shiftKey ? -1 : 1)); }
+  if (e.key.toLowerCase() === "f" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); $("#viewer-q").focus(); $("#viewer-q").select(); }
+});
+$("#viewer-next").addEventListener("click", () => gotoHit(viewer.current + 1));
+$("#viewer-prev").addEventListener("click", () => gotoHit(viewer.current - 1));
+$("#viewer-close").addEventListener("click", closeViewer);
+$("#viewer").addEventListener("click", (e) => { if (e.target === $("#viewer")) closeViewer(); });
+$("#viewer-line").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); gotoLine(Number(e.target.value)); } });
+$("#viewer-code").addEventListener("click", (e) => {
+  const ln = e.target.closest(".ln");
+  if (ln) { const n = ln.textContent; $("#viewer-line").value = n; copy(`${viewer.data.path || viewer.data.title}:${n}`, `คัดลอก ${viewer.data.title}:${n}`); }
+});
+
 // --------------------------------------------------------------- settings
 const settingsOpen = () => !$("#settings").classList.contains("hidden");
 
@@ -506,7 +652,8 @@ function applyPreset(next, message) {
 }
 
 function onPrefsChanged(before) {
-  if (!before || before.recent !== prefs.recent || before.resultLimit !== prefs.resultLimit) search();
+  if (!before || before.recent !== prefs.recent || before.resultLimit !== prefs.resultLimit || before.sortBy !== prefs.sortBy) search();
+  updateSortLabel();
   if (!before || before.filters !== prefs.filters) {
     if (prefs.filters === "hidden" && state.kind) setKind(""); // hidden filter must not keep filtering
   }
@@ -608,13 +755,16 @@ function pageBehavior() {
   const p = prefs;
   return [
     group("การค้นหา", [
-      pref("กด Enter", "Shift+Enter ทำอีกแบบ", segmented([["open", "เปิดทันที"], ["details", "ดูรายละเอียด"]], p.enterAction, (v) => setPref("enterAction", v))),
+      pref("กด Enter", "Shift+Enter = ดูรายละเอียด/เปิดทันที", segmented([["open", "เปิดทันที"], ["details", "ดูรายละเอียด"], ["view", "ดูเนื้อหา"]], p.enterAction, (v) => setPref("enterAction", v))),
+      pref("เรียงผลลัพธ์", "เปลี่ยนได้จากปุ่มเรียงลำดับเหนือผลลัพธ์ด้วย", el("select", { class: "select", onchange: (e) => setPref("sortBy", e.target.value) },
+        SORT_OPTIONS.map(([v, label]) => el("option", { value: v, selected: v === p.sortBy ? "" : null }, label)))),
       pref("จำนวนผลลัพธ์สูงสุด", null, segmented([[20, "20"], [50, "50"], [100, "100"]], p.resultLimit, (v) => setPref("resultLimit", v))),
     ]),
     group("คีย์ลัด", [
       pref("ไปที่ช่องค้นหา", null, el("span", {}, el("kbd", {}, "/"), " หรือ ", el("kbd", {}, "Ctrl"), "+", el("kbd", {}, "K"))),
       pref("เลือกผลลัพธ์", null, el("span", {}, el("kbd", {}, "↑"), " ", el("kbd", {}, "↓"))),
       pref("ปิดหน้าต่าง / ล้างคำค้น", null, el("kbd", {}, "Esc")),
+      pref("ในหน้าดูเนื้อหา: คำที่เจอถัดไป / ก่อนหน้า", null, el("span", {}, el("kbd", {}, "Enter"), " / ", el("kbd", {}, "Shift"), "+", el("kbd", {}, "Enter"))),
     ]),
   ];
 }
@@ -665,8 +815,11 @@ function fillScanCard(card) {
     parts.push(el("div", { class: "stats" },
       el("div", {}, el("strong", {}, pr.rate ? `${pr.rate} ไฟล์/วิ` : "—"), el("span", {}, "ความเร็ว")),
       el("div", {}, el("strong", {}, fmtDuration(pr.eta_seconds)), el("span", {}, "เหลืออีกประมาณ")),
-      el("div", {}, el("strong", {}, pr.cpu != null ? `${pr.cpu}%` : "—"), el("span", {}, "CPU ที่แอปใช้")),
-      el("div", {}, el("strong", {}, pr.ram_mb != null ? `${pr.ram_mb} MB` : "—"), el("span", {}, "RAM ที่แอปใช้"))));
+      el("div", {}, el("strong", {}, pr.cpu != null ? `${pr.cpu}%` : "—"), el("span", {}, "CPU ตัวสแกน")),
+      el("div", {}, el("strong", {}, pr.worker_ram_mb != null ? `${pr.worker_ram_mb} MB` : pr.ram_mb != null ? `${pr.ram_mb} MB` : "—"),
+        el("span", {}, pr.ram_limit_mb ? `RAM ตัวสแกน (เพดาน ${pr.ram_limit_mb} MB)` : "RAM ตัวสแกน"))));
+    if (pr.worker_pid) parts.push(el("div", { class: "current" },
+      `ทำงานใน process แยก (PID ${pr.worker_pid}) แบบ priority ต่ำ${pr.careful ? " · โหมดระวัง: อ่านทีละไฟล์หลังตัวสแกนล่ม" : ""}${pr.restarts ? ` · เริ่มใหม่ ${pr.restarts} ครั้ง` : ""}`));
     if (pr.current) parts.push(el("div", { class: "current" }, `กำลังอ่าน: ${pr.current}`));
     if (pr.throttled) parts.push(el("div", { class: "notice" }, `พักชั่วคราวเพื่อไม่ให้เครื่องหน่วง — ${pr.throttled}`));
   } else {
@@ -677,6 +830,7 @@ function fillScanCard(card) {
       el("div", { class: "state" }, el("strong", {}, el("span", { class: "dot-live" }), "ไม่ได้สแกนอยู่"), el("span", {}, sub), el("span", {}, auto)),
       btn("เริ่มสแกน", startScan, "primary")));
     if (last && last.stopped) parts.push(el("div", { class: "notice info" }, "การสแกนครั้งล่าสุดถูกหยุดก่อนเสร็จ กด \"เริ่มสแกน\" เพื่อทำต่อ (ไฟล์ที่สแกนแล้วจะไม่อ่านซ้ำ)"));
+    if (last && last.restarts) parts.push(el("div", { class: "notice" }, `ครั้งล่าสุดตัวสแกนล่มและเริ่มใหม่ ${last.restarts} ครั้ง${last.errors.length ? " — " + last.errors.slice(-2).join(" · ") : ""}`));
     if (last && last.paused_seconds >= 1) parts.push(el("div", { class: "notice info" }, `ครั้งล่าสุดพักไปรวม ${fmtDuration(last.paused_seconds)} เพื่อไม่ให้ใช้ CPU/RAM เกินขีดจำกัด`));
   }
   card.replaceChildren(...parts);
@@ -721,6 +875,13 @@ function pageScanning() {
         (v) => saveScanSettings({ interval_minutes: v }))),
     ]),
     group("โฟลเดอร์", folderRows, "การตั้งค่าในหมวดนี้เก็บไว้ที่เครื่องที่รันแอป ใช้ร่วมกันทุก browser"),
+    group("ชนิดไฟล์ที่อ่านเนื้อหาได้", Object.entries(s.supported_formats || {}).map(([k, v]) => pref(k, v, el("span"))),
+      "ไฟล์ชนิดอื่น (รูป วิดีโอ ฯลฯ) ค้นได้จากชื่อไฟล์และโฟลเดอร์"),
+    ...(ix.skipped && ix.skipped.length ? [group("ไฟล์ที่ข้ามเนื้อหา", [
+      pref(`${ix.skipped.length} ไฟล์ทำให้ตัวสแกนล่ม`, "ยังค้นจากชื่อได้ กด \"ลองใหม่\" ให้สแกนครั้งถัดไปอ่านเนื้อหาอีกครั้ง",
+        btn("ลองใหม่", async () => { await api("/api/scan/skipped", { method: "DELETE" }); toast("จะลองอ่านไฟล์เหล่านี้ในการสแกนครั้งถัดไป"); await refreshStatus(); renderSettingsPage(); }, "secondary sm")),
+      el("ul", { class: "skipped" }, ix.skipped.slice(0, 20).map((f) => el("li", {}, el("code", {}, f.path), el("span", { class: "secondary" }, f.reason)))),
+    ])] : []),
   ];
 }
 
@@ -969,13 +1130,20 @@ $("#q").addEventListener("keydown", (e) => {
   else if (e.key === "ArrowUp") { e.preventDefault(); select(state.selected - 1); }
   else if (e.key === "Enter" && state.selected >= 0) {
     e.preventDefault();
+    const r = state.results[state.selected];
+    if (prefs.enterAction === "view" && !e.shiftKey && canView(r)) return openViewer(r);
     const details = (prefs.enterAction === "details") !== e.shiftKey;
-    if (details) openDetail(); else primaryAction(state.results[state.selected]);
+    if (details) openDetail(); else primaryAction(r);
   }
 });
 document.addEventListener("keydown", (e) => {
   if ($("#modal").open) return;
+  if (viewerOpen()) {
+    if (e.key === "Escape") { e.preventDefault(); closeViewer(); }
+    return; // the viewer handles its own keys
+  }
   if (e.key === "Escape") {
+    if (!$("#sort-menu").classList.contains("hidden")) { toggleSortMenu(false); $("#sort-btn").focus(); return; }
     if (!$("#add-menu").classList.contains("hidden")) { toggleAddMenu(false); $("#add-btn").focus(); return; }
     if (settingsOpen()) { closeSettings(); return; }
     if ($("#detail").classList.contains("open")) { closeDetail(); $("#q").focus(); return; }
@@ -996,7 +1164,10 @@ $("#filters").addEventListener("click", (e) => {
 $("#add-btn").addEventListener("click", (e) => { e.stopPropagation(); toggleAddMenu(); });
 document.addEventListener("click", (e) => {
   if (!e.target.closest(".add-wrap") && !$("#add-menu").classList.contains("hidden")) toggleAddMenu(false);
+  if (!e.target.closest(".sort-wrap") && !$("#sort-menu").classList.contains("hidden")) toggleSortMenu(false);
 });
+$("#sort-btn").addEventListener("click", (e) => { e.stopPropagation(); toggleSortMenu(); });
+updateSortLabel();
 $("#scrim").addEventListener("click", () => { closeSettings(); closeDetail(); });
 $("#settings-btn").addEventListener("click", () => openSettings());
 $("#settings-close").addEventListener("click", closeSettings);

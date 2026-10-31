@@ -30,7 +30,8 @@ const DEFAULT_PREFS = Object.freeze({
   vaultButton: true,      // lock/unlock button next to search
   scanIndicator: true,    // floating scan progress with a stop button
   // behaviour
-  enterAction: "open",    // open (open file/link, copy password) | details
+  enterAction: "open",    // open (open file/link, copy password) | details | view (contents)
+  sortBy: "relevance",    // relevance | newest | oldest | name | name_desc | largest | type
   resultLimit: 50,
 });
 
