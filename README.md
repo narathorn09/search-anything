@@ -14,6 +14,41 @@
 
 ![Search Anything](docs/screenshot.png)
 
+## เริ่มใช้งานด้วยคำสั่งเดียว
+
+ดาวน์โหลดโปรเจกต์ (ปุ่ม Code → Download ZIP แล้วแตกไฟล์ หรือใช้ `git clone`) จากนั้น:
+
+| เครื่อง | ทำแบบนี้ |
+|---|---|
+| **Mac** | ดับเบิลคลิก `start.command` (ครั้งแรกถ้า macOS เตือน: คลิกขวา → Open) หรือรัน `./start.command` ใน Terminal |
+| **Windows** | ดับเบิลคลิก `start.bat` |
+
+สคริปต์จะทำให้ทั้งหมด:
+- หา Python 3.10 ขึ้นไป ถ้าไม่มีจะติดตั้งให้ (Mac ใช้ Homebrew, Windows ใช้ winget) หรือเปิดหน้าดาวน์โหลดให้
+- ติดตั้ง package ไว้ในโฟลเดอร์ `.venv` ของโปรเจกต์ (ครั้งแรกใช้เวลาไม่กี่นาที ครั้งต่อไปเปิดได้ทันที)
+- เปิดแอปในโหมด local แล้วเปิด browser ให้อัตโนมัติ
+- ครั้งแรกจะค้นไฟล์ใน Documents, Desktop และ Downloads ให้เลย (เปลี่ยนได้ที่ ตั้งค่า → การสแกนไฟล์)
+
+จะส่งตัวเลือกเพิ่มก็ได้ เช่น `./start.command --folder ~/Work` หรือ `start.bat --folder D:\Work` ส่วนวิธีปิดแอป: ปิดหน้าต่าง Terminal/คอนโซล หรือกด `Ctrl+C`
+
+## คู่มือในแอป
+
+กดปุ่ม **?** ข้างช่องค้นหา (หรือกดปุ่ม `?` บนคีย์บอร์ด) จะเจอ "น้องค้น" พร้อมการ์ดอธิบายทุกเมนูและวิดีโอสั้นของแต่ละเมนู ปุ่ม **เริ่มทัวร์ 1 นาที** จะพาชี้ทีละจุดบนหน้าจอจริง ครั้งแรกที่เปิดแอประบบจะชวนดูทัวร์ (กดข้ามได้)
+
+วิดีโอการใช้งานแต่ละเมนู (ไฟล์ MP4 อยู่ใน `search_anything/static/guide/`):
+[ค้นหา](search_anything/static/guide/search.mp4) ·
+[เพิ่มข้อมูล](search_anything/static/guide/add.mp4) ·
+[อัปโหลด & ลากวาง](search_anything/static/guide/upload.mp4) ·
+[เลือกประเภท](search_anything/static/guide/filters.mp4) ·
+[รายละเอียด](search_anything/static/guide/detail.mp4) ·
+[ดูเนื้อหา & ไปบรรทัด](search_anything/static/guide/viewer.mp4) ·
+[เรียงลำดับ](search_anything/static/guide/sort.mp4) ·
+[ตู้รหัสผ่าน](search_anything/static/guide/vault.mp4) ·
+[การสแกนไฟล์](search_anything/static/guide/scan.mp4) ·
+[ปรับหน้าตา](search_anything/static/guide/settings.mp4)
+
+ถ้าหน้าตาแอปเปลี่ยน อัดวิดีโอใหม่ได้ด้วย `tools/record-guide-videos.js` (ดู [tools/README.md](tools/README.md))
+
 ## ไฟล์ที่อ่านเนื้อหาได้
 
 | กลุ่ม | ชนิดไฟล์ |
@@ -35,7 +70,7 @@
 - `Enter` / `Shift+Enter` (หรือ `F3`) ไปคำที่เจอถัดไป/ก่อนหน้า, ช่อง "ไปบรรทัด" กระโดดไปเลขบรรทัด, กดเลขบรรทัดเพื่อคัดลอก `ไฟล์:บรรทัด`
 - ไฟล์ข้อความ/โค้ดอ่านจากไฟล์จริง เลขบรรทัดจึงตรงกับไฟล์ ส่วน PDF/Office แสดงข้อความที่ดึงออกมา
 
-## ติดตั้ง
+## ติดตั้งเอง (แบบละเอียด)
 
 ต้องใช้ Python 3.10 ขึ้นไป
 

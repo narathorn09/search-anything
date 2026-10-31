@@ -458,15 +458,18 @@ class Database:
         return out
 
     def recent(self, kind: str | None = None, limit: int = 50) -> list[dict]:
-        if kind == "file":
-            rows = []
+        """Latest items before anything is typed. "All" mixes files and
+        personal items, newest first."""
+        files: list[dict] = []
+        if kind in (None, "file"):
             for shard in self.shards:
                 with shard._rlock:
                     part = shard.rconn.execute(
                         "SELECT * FROM files ORDER BY mtime DESC LIMIT ?", (limit,)).fetchall()
-                rows += [shard._as_item(r, rank=(0, -r["mtime"])) for r in part]
-            rows.sort(key=lambda r: r["rank"])
-            return rows[:limit]
+                files += [shard._as_item(r, rank=(0, -r["mtime"])) for r in part]
+            if kind == "file":
+                files.sort(key=lambda r: r["rank"])
+                return files[:limit]
         sql = "SELECT * FROM items"
         params: list[Any] = []
         if kind:
@@ -475,7 +478,10 @@ class Database:
         sql += " ORDER BY updated_at DESC LIMIT ?"
         params.append(limit)
         with self._lock:
-            return [dict(r) for r in self.conn.execute(sql, params).fetchall()]
+            items = [dict(r) for r in self.conn.execute(sql, params).fetchall()]
+        if kind is None:
+            items = sorted(items + files, key=lambda r: -(r.get("updated_at") or 0))
+        return items[:limit]
 
     def close(self) -> None:
         for shard in self.shards:

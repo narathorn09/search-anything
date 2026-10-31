@@ -10,6 +10,10 @@ import argparse
 import logging
 import os
 import sys
+import threading
+import time
+import urllib.request
+import webbrowser
 from pathlib import Path
 
 import uvicorn
@@ -36,6 +40,10 @@ def main(argv: list[str] | None = None) -> None:
                         help="hostname allowed in the Host header (server mode; repeatable)")
     parser.add_argument("--max-upload-mb", type=int, default=int(os.environ.get("SA_MAX_UPLOAD_MB", "200")),
                         help="largest file accepted by the upload button")
+    parser.add_argument("--open-browser", action="store_true",
+                        help="open the app in the default browser once it is ready")
+    parser.add_argument("--default-folders", action="store_true",
+                        help="local mode, first run only: index Documents, Desktop and Downloads")
     parser.add_argument("--https-cookie", action="store_true",
                         default=os.environ.get("SA_HTTPS_COOKIE") == "1",
                         help="mark the login cookie Secure (use behind HTTPS)")
@@ -72,6 +80,12 @@ def main(argv: list[str] | None = None) -> None:
             "(Kubernetes/Rancher: set the pod's fsGroup / Filesystem Group to 10001)."
         )
 
+    if args.default_folders and args.mode == "local" and not folders and not (data_dir / "search.db").exists():
+        home = Path.home()
+        folders = [str(home / name) for name in ("Documents", "Desktop", "Downloads") if (home / name).is_dir()]
+        if folders:
+            print("First run: searching", ", ".join(folders), "(change in Settings > การสแกนไฟล์)")
+
     config = Config(
         mode=args.mode,
         data_dir=data_dir,
@@ -84,8 +98,22 @@ def main(argv: list[str] | None = None) -> None:
         max_upload_mb=args.max_upload_mb,
     )
     app = create_app(config)
-    print(f"Search Anything ({args.mode} mode) → http://{'localhost' if host == '127.0.0.1' else host}:{args.port}")
+    url = f"http://{'localhost' if host in ('127.0.0.1', '0.0.0.0') else host}:{args.port}"
+    print(f"Search Anything ({args.mode} mode) -> {url}   (Ctrl+C to stop)", flush=True)
+    if args.open_browser:
+        threading.Thread(target=_open_when_ready, args=(url,), daemon=True).start()
     uvicorn.run(app, host=host, port=args.port, log_level="warning")
+
+
+def _open_when_ready(url: str) -> None:
+    """Wait until the server answers, then open the browser."""
+    for _ in range(100):
+        try:
+            with urllib.request.urlopen(url + "/api/status", timeout=1):
+                break
+        except OSError:
+            time.sleep(0.2)
+    webbrowser.open(url)
 
 
 if __name__ == "__main__":
