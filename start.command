@@ -79,6 +79,9 @@ run_venv() {
     .venv/bin/python -m pip install --quiet -r requirements.txt
     echo "$HASH" > .venv/.requirements.sha
   fi
+  if ! command -v tesseract >/dev/null 2>&1 && [ ! -x /opt/homebrew/bin/tesseract ] && [ ! -x /usr/local/bin/tesseract ]; then
+    echo "Tip: to search scanned PDFs (OCR), install Tesseract:  brew install tesseract tesseract-lang   (or run with Docker)"
+  fi
   say "Starting Search Anything (Python)…   data: ./data   stop: Ctrl+C"
   ARGS=(--port "$PORT" --open-browser)
   if [ ${#FOLDERS[@]} -eq 0 ]; then ARGS+=(--default-folders); else for f in "${FOLDERS[@]}"; do ARGS+=(--folder "$f"); done; fi

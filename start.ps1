@@ -98,6 +98,9 @@ function Start-Venv {
         if ($LASTEXITCODE -ne 0) { exit 1 }
         Set-Content -LiteralPath $stamp -Value $hash
     }
+    if (-not (Get-Command tesseract -ErrorAction SilentlyContinue) -and -not (Test-Path "C:\Program Files\Tesseract-OCR\tesseract.exe")) {
+        Write-Host "Tip: to search scanned PDFs (OCR), install Tesseract from https://github.com/UB-Mannheim/tesseract/wiki (tick Thai under Additional language data), or run with Docker."
+    }
     Say "Starting Search Anything (Python)...   data: .\data   stop: close this window or Ctrl+C"
     $runArgs = @("-m", "search_anything", "--port", $Port, "--open-browser")
     if ($Folders.Count -eq 0) { $runArgs += "--default-folders" } else { foreach ($f in $Folders) { $runArgs += @("--folder", $f) } }

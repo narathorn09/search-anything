@@ -23,6 +23,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+from . import ocr
 from .db import Database
 from .extractors import EXTRACTOR_VERSION, extract_text  # noqa: F401 (re-exported)
 from .resources import DEFAULT_PROFILE, PROFILES, Brake, lower_thread_priority
@@ -31,6 +32,8 @@ log = logging.getLogger(__name__)
 
 BATCH_ROWS = 200  # rows per shard commit
 BATCH_SECONDS = 1.0  # …or commit at least this often so results appear during a scan
+MAX_OCR_CHARS = 500_000  # OCR text kept per file
+OCR_DEFAULT_MAX_PAGES = ocr.DEFAULT_MAX_PAGES
 BRAKE_MAX_WAIT = 5.0  # after this long paused, let one item through (never hang)
 SKIP_DIRS = {
     ".git", ".svn", ".hg", "node_modules", "__pycache__", ".venv", "venv", ".cache",
@@ -49,6 +52,8 @@ class IndexStats:
     paused_seconds: float = 0.0
     profile: str = DEFAULT_PROFILE
     restarts: int = 0  # worker process restarts during this scan (process mode)
+    ocr_files: int = 0  # files read with OCR during this scan
+    ocr_pages: int = 0
     errors: list[str] = field(default_factory=list)
 
 
@@ -57,6 +62,9 @@ class ScanSettings:
     profile: str = DEFAULT_PROFILE
     auto: bool = True  # rescan in the background
     interval_minutes: int = 5
+    ocr: bool = True  # read scanned PDFs with OCR (when Tesseract is installed)
+    ocr_images: bool = False  # also read images (jpg, png, tiff …) with OCR
+    ocr_max_pages: int = OCR_DEFAULT_MAX_PAGES  # per file
 
     @classmethod
     def from_dict(cls, data: dict | None, default_interval: int = 5) -> "ScanSettings":
@@ -67,6 +75,8 @@ class ScanSettings:
         if s.profile not in PROFILES:
             s.profile = DEFAULT_PROFILE
         s.interval_minutes = max(1, min(int(s.interval_minutes), 24 * 60))
+        s.ocr, s.ocr_images = bool(s.ocr), bool(s.ocr_images)
+        s.ocr_max_pages = max(1, min(int(s.ocr_max_pages), 2000))
         return s
 
 
@@ -91,6 +101,7 @@ class Indexer:
         self.last_stats: IndexStats | None = None
         self.running = False
         self.progress: dict = {"phase": "idle"}
+        self._ocr_known: dict[str, tuple[float, int, str]] = {}
 
     @property
     def folders(self) -> list[str]:
@@ -145,6 +156,7 @@ class Indexer:
             "progress": info,
             "last": asdict(self.last_stats) if self.last_stats else None,
             "settings": asdict(self.settings),
+            "ocr": {**ocr.engine().info(), **self.db.ocr_summary()},
         }
 
     # ----------------------------------------------------------------- scan
@@ -181,6 +193,7 @@ class Indexer:
                          "current": "", "rate": 0.0, "eta_seconds": None, "profile": profile.key}
         # A newer extractor reads more formats: read every file again once.
         reextract = self.db.get_meta("extractor_version", 1) < EXTRACTOR_VERSION
+        self._ocr_known = self.db.ocr_states()
         try:
             known = self.db.file_index()
             seen: set[str] = set()
@@ -212,8 +225,11 @@ class Indexer:
             stale = [p for p in known if p not in seen]
             if stale:
                 self.db.delete_paths(stale)
+                self.db.ocr_forget([p for p in stale if p in self._ocr_known])
                 stats.removed = len(stale)
             stats.added_or_updated = self._index(todo, profile, brake)
+            if not self._stop.is_set():
+                self._ocr_phase(profile, brake, stats)
             stats.stopped = self._stop.is_set()
             if reextract and not stats.stopped:
                 self.db.set_meta("extractor_version", EXTRACTOR_VERSION)
@@ -274,7 +290,7 @@ class Indexer:
                 return path, name, "", mtime, size  # crashed before: name only
             if self.before_extract:
                 self.before_extract(path)
-            return path, name, extract_text(Path(path), size), mtime, size
+            return path, name, self._with_ocr(path, extract_text(Path(path), size), mtime, size), mtime, size
 
         done = 0
         started = time.monotonic()
@@ -310,6 +326,86 @@ class Indexer:
         if errors:
             raise errors[0]
         return done
+
+    # ------------------------------------------------------------------ ocr
+    def _with_ocr(self, path: str, text: str, mtime: float, size: int) -> str:
+        """Re-reading a file that was already read with OCR: keep that text."""
+        known = self._ocr_known.get(path)
+        if known and known[2] == "done" and known[:2] == (mtime, size):
+            saved = self.db.ocr_text(path, mtime, size)
+            if saved:
+                return ocr.merge(text, saved)
+        return text
+
+    def ocr_pending(self) -> list[tuple[str, int, float, int]]:
+        """Indexed files that should be read with OCR: (path, id, mtime, size), newest first."""
+        if not self.settings.ocr:
+            return []
+        states = self.db.ocr_states()
+        todo = [(path, item_id, mtime, size) for path, (item_id, mtime, size) in self.db.file_index().items()
+                if ocr.is_candidate(path, self.settings.ocr_images)
+                and states.get(path, (None, None))[:2] != (mtime, size)]
+        todo.sort(key=lambda t: t[2], reverse=True)
+        return todo
+
+    def _ocr_phase(self, profile, brake: Brake, stats: IndexStats) -> None:
+        """Read scanned PDFs (and images, if enabled) with OCR, newest first.
+        Runs after the normal scan, so plain search results are never delayed."""
+        eng = ocr.engine()
+        if not self.settings.ocr or not eng.available:
+            return
+        todo = self.ocr_pending()
+        if not todo:
+            return
+        self.progress.update(phase="ocr", total=len(todo), done=0, current="", page=0, pages=0,
+                             rate=0.0, eta_seconds=None)
+        reader = ocr.Reader(eng, threads=min(4, profile.extract_workers) if profile.key == "fast" else 1,
+                            should_stop=self._stop.is_set)
+
+        def on_page(n: int, total: int) -> None:
+            self.progress.update(page=n, pages=total)
+            brake.wait(max_wait=BRAKE_MAX_WAIT)
+
+        reader.on_page = on_page
+        started = time.monotonic()
+        for done, (path, item_id, mtime, size) in enumerate(todo):
+            if self._stop.is_set():
+                return
+            brake.wait(max_wait=BRAKE_MAX_WAIT)
+            self.progress.update(current=os.path.basename(path), page=0, pages=0)
+            try:
+                st = os.stat(path)
+            except OSError:
+                continue  # gone: the next scan removes it
+            if (st.st_mtime, st.st_size) != (mtime, size):
+                continue  # changed since it was indexed: the next scan reads it again
+            if self.skip.get(path) == (mtime, size):
+                self.db.set_ocr(path, mtime, size, "failed", 0, "")  # crashed the scanner before
+                continue
+            if self.before_extract:
+                self.before_extract(path)
+            t0 = time.monotonic()
+            try:
+                text, pages = reader.read(path, self.settings.ocr_max_pages)
+                status = "done" if text else "none"
+            except ocr.Stopped:
+                return
+            except Exception as exc:  # encrypted / corrupt / unsupported
+                log.debug("OCR failed for %s: %s", path, exc)
+                text, pages, status = "", 0, "failed"
+            text = text[:MAX_OCR_CHARS]
+            if text:
+                item = self.db.get_item(item_id, max_chars=MAX_OCR_CHARS * 2)
+                if item is not None:
+                    body = ocr.merge(item.get("body") or "", text)
+                    self.db.shard_for(path).upsert_many([(path, item["title"], body, mtime, size)])
+            self.db.set_ocr(path, mtime, size, status, pages, text, round(time.monotonic() - t0, 2))
+            stats.ocr_files += 1
+            stats.ocr_pages += pages
+            elapsed = time.monotonic() - started
+            rate = (done + 1) / elapsed if elapsed > 0 else 0.0
+            # No time estimate: files differ too much in page count.
+            self.progress.update(done=done + 1, rate=round(rate, 2), eta_seconds=None)
 
     def index_paths(self, paths: list[str]) -> list[int]:
         """Index specific files right away (used after an upload). Returns item ids."""

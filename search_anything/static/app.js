@@ -1274,25 +1274,28 @@ function fillScanCard(card) {
   if (ix.running) {
     const total = pr.total || 0;
     const pct = total ? Math.floor((pr.done / total) * 100) : null;
-    const title = pr.phase === "stopping" ? "กำลังหยุด…" : pr.phase === "walking" ? "กำลังสำรวจโฟลเดอร์…" : "กำลังสแกนไฟล์";
+    const isOcr = pr.phase === "ocr";
+    const title = pr.phase === "stopping" ? "กำลังหยุด…" : pr.phase === "walking" ? "กำลังสำรวจโฟลเดอร์…"
+      : isOcr ? "กำลังอ่านภาพสแกน (OCR)" : "กำลังสแกนไฟล์";
     const sub = pr.phase === "walking" ? `พบแล้ว ${Number(pr.scanned || 0).toLocaleString()} ไฟล์`
-      : total ? `${pr.done.toLocaleString()} / ${total.toLocaleString()} ไฟล์ที่ต้องอ่าน · ${pct}%` : "";
+      : total ? `${pr.done.toLocaleString()} / ${total.toLocaleString()} ไฟล์ที่ต้อง${isOcr ? "อ่านด้วย OCR" : "อ่าน"} · ${pct}%` : "";
     parts.push(el("div", { class: "scan-top" },
       el("div", { class: "state" }, el("strong", {}, el("span", { class: `dot-live ${pr.throttled ? "warn" : "on"}` }), title), el("span", {}, sub)),
       btn("หยุดสแกน", stopScan, "danger", null, pr.phase === "stopping" ? { disabled: "" } : {})));
     parts.push(el("div", { class: `progress${pct == null ? " indeterminate" : ""}` }, el("span", { style: pct == null ? "" : `width:${pct}%` })));
     parts.push(el("div", { class: "stats" },
-      el("div", {}, el("strong", {}, pr.rate ? `${pr.rate} ไฟล์/วิ` : "—"), el("span", {}, "ความเร็ว")),
+      el("div", {}, el("strong", {}, !pr.rate ? "—" : isOcr ? `${Math.round(pr.rate * 600) / 10} ไฟล์/นาที` : `${pr.rate} ไฟล์/วิ`), el("span", {}, "ความเร็ว")),
       el("div", {}, el("strong", {}, fmtDuration(pr.eta_seconds)), el("span", {}, "เหลืออีกประมาณ")),
       el("div", {}, el("strong", {}, pr.cpu != null ? `${pr.cpu}%` : "—"), el("span", {}, "CPU ตัวสแกน")),
       el("div", {}, el("strong", {}, pr.worker_ram_mb != null ? `${pr.worker_ram_mb} MB` : pr.ram_mb != null ? `${pr.ram_mb} MB` : "—"),
         el("span", {}, pr.ram_limit_mb ? `RAM ตัวสแกน (เพดาน ${pr.ram_limit_mb} MB)` : "RAM ตัวสแกน"))));
     if (pr.worker_pid) parts.push(el("div", { class: "current" },
       `ทำงานใน process แยก (PID ${pr.worker_pid}) แบบ priority ต่ำ${pr.careful ? " · โหมดระวัง: อ่านทีละไฟล์หลังตัวสแกนล่ม" : ""}${pr.restarts ? ` · เริ่มใหม่ ${pr.restarts} ครั้ง` : ""}`));
-    if (pr.current) parts.push(el("div", { class: "current" }, `กำลังอ่าน: ${pr.current}`));
+    if (pr.current) parts.push(el("div", { class: "current" }, `กำลังอ่าน: ${pr.current}${isOcr && pr.pages ? ` · หน้า ${pr.page} / ${pr.pages}` : ""}`));
     if (pr.throttled) parts.push(el("div", { class: "notice" }, `พักชั่วคราวเพื่อไม่ให้เครื่องหน่วง — ${pr.throttled}`));
   } else {
-    const sub = last ? `สแกนล่าสุด ${fmtAgo(last.finished_at)} · ${last.scanned.toLocaleString()} ไฟล์ · อ่านใหม่ ${last.added_or_updated.toLocaleString()} · ใช้เวลา ${fmtDuration(last.seconds)}`
+    const sub = last ? `สแกนล่าสุด ${fmtAgo(last.finished_at)} · ${last.scanned.toLocaleString()} ไฟล์ · อ่านใหม่ ${last.added_or_updated.toLocaleString()}${
+        last.ocr_files ? ` · OCR ${last.ocr_files.toLocaleString()} ไฟล์ (${(last.ocr_pages || 0).toLocaleString()} หน้า)` : ""} · ใช้เวลา ${fmtDuration(last.seconds)}`
       : "ยังไม่เคยสแกน";
     const auto = ix.settings.auto ? `สแกนอัตโนมัติทุก ${ix.settings.interval_minutes} นาที` : "ปิดการสแกนอัตโนมัติอยู่";
     parts.push(el("div", { class: "scan-top" },
@@ -1348,6 +1351,8 @@ function pageScanning() {
       pref("ทุกๆ", null, segmented([[5, "5 นาที"], [15, "15 นาที"], [30, "30 นาที"], [60, "1 ชม."]], ix.settings.interval_minutes,
         (v) => saveScanSettings({ interval_minutes: v }))),
     ]),
+    group("อ่านข้อความจากภาพสแกน (OCR)", ocrRows(s, ix),
+      "OCR ทำหลังสแกนไฟล์ปกติเสร็จ ทีละไฟล์ด้วย priority ต่ำ ไฟล์ใหม่ล่าสุดก่อน · อ่านครั้งเดียวต่อไฟล์ (อ่านใหม่เมื่อไฟล์เปลี่ยน)"),
     group("โฟลเดอร์", folderRows, "การตั้งค่าในหมวดนี้เก็บไว้ที่เครื่องที่รันแอป ใช้ร่วมกันทุก browser"),
     group("ชนิดไฟล์ที่อ่านเนื้อหาได้", Object.entries(s.supported_formats || {}).map(([k, v]) => pref(k, v, el("span"))),
       "ไฟล์ชนิดอื่น (รูป วิดีโอ ฯลฯ) ค้นได้จากชื่อไฟล์และโฟลเดอร์"),
@@ -1356,6 +1361,31 @@ function pageScanning() {
         btn("ลองใหม่", async () => { await api("/api/scan/skipped", { method: "DELETE" }); toast("จะลองอ่านไฟล์เหล่านี้ในการสแกนครั้งถัดไป"); await refreshStatus(); renderSettingsPage(); }, "secondary sm")),
       el("ul", { class: "skipped" }, ix.skipped.slice(0, 20).map((f) => el("li", {}, el("code", {}, f.path), el("span", { class: "secondary" }, f.reason)))),
     ])] : []),
+  ];
+}
+
+function ocrRows(s, ix) {
+  const o = ix.ocr || {};
+  const set = ix.settings;
+  const langs = (o.langs || []).map((l) => ({ tha: "ไทย", eng: "อังกฤษ" }[l] || l)).join(" + ");
+  let state;
+  if (o.available && o.thai) {
+    state = pref("พร้อมใช้งาน", `Tesseract ${o.version} · ภาษา ${langs} · อ่านแล้ว ${Number(o.done || 0).toLocaleString()} ไฟล์ (${Number(o.pages || 0).toLocaleString()} หน้า)${
+      o.none ? ` · ไม่มีข้อความ ${o.none.toLocaleString()}` : ""}${o.failed ? ` · อ่านไม่ได้ ${o.failed.toLocaleString()}` : ""}`, el("span", { class: "dot-live on" }));
+  } else {
+    const how = s.in_container ? "อิมเมจ Docker นี้ไม่มี Tesseract — build ใหม่จาก Dockerfile ล่าสุด"
+      : "Mac: brew install tesseract tesseract-lang · Windows: ติดตั้ง Tesseract (UB Mannheim) และติ๊ก Thai ตอนติดตั้ง · Linux: apt install tesseract-ocr tesseract-ocr-tha · หรือรันผ่าน Docker (มีให้ครบ)";
+    state = pref(o.installed ? (o.available ? "ยังไม่มีภาษาไทย" : "Tesseract ใช้งานไม่ได้") : "ยังไม่ได้ติดตั้ง Tesseract",
+      o.installed && o.available ? `อ่านได้เฉพาะ ${langs} · ${how}` : how, el("span", { class: "dot-live warn" }), true);
+  }
+  return [
+    state,
+    pref("อ่าน PDF ที่เป็นภาพสแกน", "หน้าที่ไม่มีข้อความ (สแกน/ถ่ายรูปเอกสาร) จะถูกอ่านด้วย OCR แล้วค้นหาได้เหมือนข้อความปกติ",
+      toggle(set.ocr, (v) => saveScanSettings({ ocr: v }), "อ่าน PDF ที่เป็นภาพสแกน")),
+    pref("อ่านรูปภาพด้วย", "jpg, png, tiff, bmp, webp · ช้ากว่าและอาจอ่านรูปถ่ายทั่วไปด้วย เหมาะกับโฟลเดอร์รูปถ่ายเอกสาร",
+      toggle(set.ocr_images, (v) => saveScanSettings({ ocr_images: v }), "อ่านรูปภาพด้วย")),
+    pref("จำนวนหน้าสูงสุดต่อไฟล์", "ประมาณ 1–2 วินาทีต่อหน้า",
+      segmented([[20, "20 หน้า"], [100, "100 หน้า"], [500, "500 หน้า"]], set.ocr_max_pages, (v) => saveScanSettings({ ocr_max_pages: v }))),
   ];
 }
 
@@ -1480,6 +1510,7 @@ function renderStatusUI() {
   const pct = pr.total ? Math.floor((pr.done / pr.total) * 100) : null;
   const scanText = pr.phase === "stopping" ? "กำลังหยุดสแกน…"
     : pr.phase === "walking" ? `กำลังสำรวจโฟลเดอร์… ${Number(pr.scanned || 0).toLocaleString()} ไฟล์`
+    : pr.phase === "ocr" ? `กำลังอ่านภาพสแกน (OCR) ${pr.done.toLocaleString()} / ${pr.total.toLocaleString()} (${pct}%)`
     : pr.total ? `กำลังสแกน ${pr.done.toLocaleString()} / ${pr.total.toLocaleString()} (${pct}%)` : "กำลังสแกน…";
   $("#status-line").textContent = ix.running ? `${scanText}${pr.throttled ? " · พักชั่วคราว" : ""}`
     : `${s.mode === "local" ? (s.in_container ? "Local (Docker)" : "Local") : "Server"} · ${total.toLocaleString()} รายการ`;

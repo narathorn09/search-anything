@@ -88,6 +88,19 @@ CREATE TABLE IF NOT EXISTS meta (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+
+-- OCR results, kept so a file is only read with OCR once per version of it
+-- (status: done = text found, none = nothing to read, failed = could not read).
+CREATE TABLE IF NOT EXISTS ocr (
+    path        TEXT PRIMARY KEY,
+    mtime       REAL NOT NULL,
+    size        INTEGER NOT NULL,
+    status      TEXT NOT NULL,
+    pages       INTEGER NOT NULL DEFAULT 0,
+    text        TEXT NOT NULL DEFAULT '',
+    seconds     REAL NOT NULL DEFAULT 0,
+    updated_at  REAL NOT NULL
+);
 """
 
 # File metadata is kept apart from the text so LIKE scans over names/paths
@@ -374,6 +387,43 @@ class Database:
                 (key, json.dumps(value)),
             )
             self.conn.commit()
+
+    # ------------------------------------------------------------------ ocr
+    def ocr_states(self) -> dict[str, tuple[float, int, str]]:
+        """{path: (mtime, size, status)} for every file read with OCR."""
+        with self._lock:
+            rows = self.conn.execute("SELECT path, mtime, size, status FROM ocr").fetchall()
+        return {r["path"]: (r["mtime"], r["size"], r["status"]) for r in rows}
+
+    def ocr_text(self, path: str, mtime: float, size: int) -> str | None:
+        """Saved OCR text for this exact version of the file (None if not read yet)."""
+        with self._lock:
+            row = self.conn.execute("SELECT text FROM ocr WHERE path=? AND mtime=? AND size=?",
+                                    (path, mtime, size)).fetchone()
+        return row["text"] if row else None
+
+    def set_ocr(self, path: str, mtime: float, size: int, status: str, pages: int, text: str,
+                seconds: float = 0.0) -> None:
+        with self._lock:
+            self.conn.execute(
+                "INSERT OR REPLACE INTO ocr(path, mtime, size, status, pages, text, seconds, updated_at) "
+                "VALUES (?,?,?,?,?,?,?,?)", (path, mtime, size, status, pages, text, seconds, time.time()))
+            self.conn.commit()
+
+    def ocr_forget(self, paths: list[str]) -> None:
+        with self._lock:
+            self.conn.executemany("DELETE FROM ocr WHERE path=?", [(p,) for p in paths])
+            self.conn.commit()
+
+    def ocr_summary(self) -> dict:
+        with self._lock:
+            rows = self.conn.execute(
+                "SELECT status, COUNT(*) AS n, SUM(pages) AS pages FROM ocr GROUP BY status").fetchall()
+        out = {"done": 0, "none": 0, "failed": 0, "pages": 0}
+        for r in rows:
+            out[r["status"]] = r["n"]
+            out["pages"] += r["pages"] or 0
+        return out
 
     # ----------------------------------------------------------- file index
     def shard_for(self, path: str) -> FileShard:
