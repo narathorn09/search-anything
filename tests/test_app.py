@@ -131,7 +131,6 @@ def test_local_mode_folders_and_host_check(tmp_path, docs):
     assert c.put("/api/folders", json={"folders": [str(docs)]}).status_code == 200
     c.app.state.indexer.run()
     assert ids(c.get("/api/search", params={"q": "ACME"})) == ["invoice-2026.md"]
-    assert c.post("/api/upload", files={"files": ("a.txt", b"x")}).status_code == 403
 
     # Folders are remembered across restarts.
     c2 = make_client(tmp_path)
@@ -187,3 +186,67 @@ def test_trigger_during_scan_is_not_dropped(tmp_path, docs):
     while not db.search("zebracorn") and time.time() < deadline:
         time.sleep(0.05)
     assert [r["title"] for r in db.search("zebracorn")] == ["late.txt"]
+
+
+# ------------------------------------------------------------------- upload
+def test_upload_local_mode_search_and_delete(tmp_path, docs):
+    c = make_client(tmp_path, folders=[str(docs)])
+    c.app.state.indexer.run()
+    r = c.post("/api/upload", files=[("files", ("ใบเสนอราคา.txt", "ราคารวม 45,000 บาท".encode()))])
+    assert r.status_code == 200
+    item = r.json()["items"][0]
+    assert item["uploaded"] is True
+    # Searchable as soon as the request returns, no rescan needed.
+    assert ids(c.get("/api/search", params={"q": "ราคารวม"})) == ["ใบเสนอราคา.txt"]
+    # A rescan keeps it (the uploads folder is always indexed) …
+    c.app.state.indexer.run()
+    assert ids(c.get("/api/search", params={"q": "ราคารวม"})) == ["ใบเสนอราคา.txt"]
+    # … and it is not listed as a user folder.
+    assert c.get("/api/status").json()["folders"] == [str(docs.resolve())]
+
+    # Uploaded files can be deleted; files from the user's own folders cannot.
+    other = c.get("/api/search", params={"q": "ACME"}).json()["results"][0]
+    assert other["uploaded"] is False
+    assert c.delete(f"/api/items/{other['id']}").status_code == 400
+    assert (docs / "sub" / "invoice-2026.md").exists()
+    assert c.delete(f"/api/items/{item['id']}").json() == {"ok": True}
+    assert ids(c.get("/api/search", params={"q": "ราคารวม"})) == []
+    assert not (tmp_path / "data" / "uploads" / "ใบเสนอราคา.txt").exists()
+
+
+def test_upload_size_limit_and_windows_style_names(tmp_path):
+    c = make_client(tmp_path, max_upload_mb=1)
+    big = b"x" * (1024 * 1024 + 1)
+    assert c.post("/api/upload", files=[("files", ("big.txt", big))]).status_code == 413
+    assert not list((tmp_path / "data" / "uploads").iterdir())  # partial file removed
+    r = c.post("/api/upload", files=[("files", ("C:\\Users\\me\\..\\.secret.txt", b"hi"))])
+    assert r.json()["saved"] == ["secret.txt"]
+
+
+# ------------------------------------------------------------------ ranking
+def test_name_matches_rank_before_content_matches(tmp_path):
+    root = tmp_path / "r"
+    root.mkdir()
+    (root / "budget-2026.txt").write_text("numbers")
+    (root / "notes.txt").write_text("the budget is tight")
+    db = Database(tmp_path / "t.db")
+    Indexer(db, [str(root)]).run()
+    db.add_item("note", "Budget meeting", "agenda")
+    db.add_item("note", "Groceries", "keep the budget low")
+    titles = [r["title"] for r in db.search("budget")]
+    assert set(titles[:2]) == {"budget-2026.txt", "Budget meeting"}
+    assert set(titles[2:]) == {"notes.txt", "Groceries"}
+    snippet_row = next(r for r in db.search("tight") if r["title"] == "notes.txt")
+    assert "budget is tight" in snippet_row["body"]
+
+
+def test_old_single_file_database_is_migrated(tmp_path):
+    import sqlite3, time as _t
+    path = tmp_path / "search.db"
+    Database(path).close()
+    conn = sqlite3.connect(path)
+    conn.execute("INSERT INTO items(kind,title,body,path,created_at,updated_at) VALUES('file','old.txt','x','/old.txt',?,?)", (_t.time(), _t.time()))
+    conn.execute("UPDATE meta SET value='1' WHERE key='schema'")
+    conn.commit(); conn.close()
+    db = Database(path)
+    assert db.counts()["file"] == 0 and db.search("old.txt") == []

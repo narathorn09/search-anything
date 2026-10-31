@@ -1,11 +1,22 @@
-"""Scan folders and index file names + text content."""
+"""Scan folders and index file names + text content.
+
+Pipeline for a scan:
+  1. walk folders with os.scandir (cheap stat info, esp. on Windows),
+  2. compare (mtime, size) with the index → only new/changed files continue,
+  3. extract text on a thread pool (bounded, so memory stays flat),
+  4. one writer thread per index shard commits in batches, so SQLite's FTS
+     indexing — the expensive part — runs on several cores at once.
+"""
 
 from __future__ import annotations
 
 import logging
 import os
+import queue
 import threading
 import time
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -15,7 +26,7 @@ log = logging.getLogger(__name__)
 
 TEXT_EXTENSIONS = {
     ".txt", ".md", ".markdown", ".rst", ".csv", ".tsv", ".log", ".json", ".yaml", ".yml",
-    ".toml", ".ini", ".cfg", ".conf", ".env.example", ".xml", ".html", ".htm", ".css",
+    ".toml", ".ini", ".cfg", ".conf", ".xml", ".html", ".htm", ".css",
     ".py", ".js", ".ts", ".tsx", ".jsx", ".java", ".kt", ".go", ".rs", ".c", ".h", ".cpp",
     ".hpp", ".cs", ".php", ".rb", ".swift", ".sh", ".bash", ".zsh", ".ps1", ".sql", ".vue",
     ".svelte", ".dart", ".lua", ".r", ".tex",
@@ -26,13 +37,17 @@ SKIP_DIRS = {
 }
 MAX_CONTENT_BYTES = 20 * 1024 * 1024  # don't read content of files bigger than this
 MAX_TEXT_CHARS = 500_000  # cap stored text per file
+BATCH_ROWS = 200  # rows per shard commit
+BATCH_SECONDS = 1.0  # …or commit at least this often so results appear during a scan
+EXTRACT_WORKERS = min(8, (os.cpu_count() or 2) * 2)
+MAX_IN_FLIGHT = EXTRACT_WORKERS * 4
 
 
-def extract_text(path: Path) -> str:
+def extract_text(path: Path, size: int | None = None) -> str:
     """Return the searchable text content of a file ('' if unsupported)."""
     suffix = path.suffix.lower()
     try:
-        if path.stat().st_size > MAX_CONTENT_BYTES:
+        if (size if size is not None else path.stat().st_size) > MAX_CONTENT_BYTES:
             return ""
         if suffix in TEXT_EXTENSIONS:
             raw = path.read_bytes()
@@ -47,10 +62,12 @@ def extract_text(path: Path) -> str:
             from pypdf import PdfReader
 
             reader = PdfReader(str(path))
-            parts = []
+            parts, total = [], 0
             for page in reader.pages:
-                parts.append(page.extract_text() or "")
-                if sum(len(p) for p in parts) > MAX_TEXT_CHARS:
+                text = page.extract_text() or ""
+                parts.append(text)
+                total += len(text)
+                if total > MAX_TEXT_CHARS:
                     break
             return "\n".join(parts)[:MAX_TEXT_CHARS]
         if suffix == ".docx":
@@ -81,6 +98,7 @@ class Indexer:
         self._queued = False
         self.last_stats: IndexStats | None = None
         self.running = False
+        self.progress = {"phase": "idle", "done": 0, "total": 0}
 
     @property
     def folders(self) -> list[str]:
@@ -89,13 +107,28 @@ class Indexer:
     def set_folders(self, folders: list[str]) -> None:
         self._folders = [str(Path(f).expanduser().resolve()) for f in folders]
 
-    def _walk(self, root: Path):
-        for dirpath, dirnames, filenames in os.walk(root, onerror=lambda e: None):
-            dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS and not d.startswith(".")]
-            for name in filenames:
-                if name.startswith("."):
-                    continue
-                yield Path(dirpath) / name
+    @staticmethod
+    def _walk(root: str):
+        """Yield (path, name, stat) for every file under root, skipping junk dirs."""
+        stack = [root]
+        while stack:
+            current = stack.pop()
+            try:
+                with os.scandir(current) as it:
+                    for entry in it:
+                        name = entry.name
+                        if name.startswith("."):
+                            continue
+                        try:
+                            if entry.is_dir(follow_symlinks=False):
+                                if name not in SKIP_DIRS:
+                                    stack.append(entry.path)
+                            elif entry.is_file():
+                                yield entry.path, name, entry.stat()
+                        except OSError:
+                            continue
+            except OSError:
+                continue
 
     def trigger(self) -> None:
         """Scan in the background. If a scan is already running, one more scan
@@ -118,40 +151,106 @@ class Indexer:
         self.running = True
         stats = IndexStats()
         start = time.time()
+        self.progress = {"phase": "walking", "done": 0, "total": 0}
         try:
             known = self.db.file_index()
             seen: set[str] = set()
+            todo: list[tuple[str, str, float, int]] = []
             for folder in self._folders:
-                root = Path(folder)
-                if not root.is_dir():
+                if not os.path.isdir(folder):
                     stats.errors.append(f"not a folder: {folder}")
                     continue
-                for path in self._walk(root):
-                    try:
-                        st = path.stat()
-                    except OSError:
-                        continue
-                    key = str(path)
-                    seen.add(key)
+                for path, name, st in self._walk(folder):
+                    seen.add(path)
                     stats.scanned += 1
-                    previous = known.get(key)
+                    previous = known.get(path)
                     if previous and previous[1] == st.st_mtime and previous[2] == st.st_size:
                         continue
-                    content = extract_text(path)
-                    # Body holds the path too so folder names are searchable.
-                    body = f"{key}\n{content}" if content else key
-                    self.db.upsert_file(key, path.name, body, st.st_mtime, st.st_size)
-                    stats.added_or_updated += 1
+                    todo.append((path, name, st.st_mtime, st.st_size))
             stale = [p for p in known if p not in seen]
             if stale:
                 self.db.delete_paths(stale)
                 stats.removed = len(stale)
+            stats.added_or_updated = self._index(todo)
         finally:
             stats.seconds = round(time.time() - start, 2)
             self.last_stats = stats
             self.running = False
+            self.progress = {"phase": "idle", "done": 0, "total": 0}
         log.info("indexed: %s", stats)
         return stats
+
+    def _index(self, todo: list[tuple[str, str, float, int]]) -> int:
+        """Extract and store files. Returns how many were written."""
+        if not todo:
+            return 0
+        self.progress = {"phase": "indexing", "done": 0, "total": len(todo)}
+        shards = self.db.shards
+        queues: list[queue.Queue] = [queue.Queue(maxsize=BATCH_ROWS * 2) for _ in shards]
+        errors: list[BaseException] = []
+
+        def writer(shard, q: queue.Queue) -> None:
+            batch, last = [], time.monotonic()
+            while True:
+                try:
+                    row = q.get(timeout=BATCH_SECONDS)
+                except queue.Empty:
+                    row = ...
+                if row is not None and row is not ...:
+                    batch.append(row)
+                due = len(batch) >= BATCH_ROWS or time.monotonic() - last >= BATCH_SECONDS
+                if batch and (row is None or due):
+                    try:
+                        shard.upsert_many(batch)
+                    except BaseException as exc:  # keep draining so producers never block
+                        errors.append(exc)
+                    batch, last = [], time.monotonic()
+                if row is None:
+                    return
+
+        writers = [threading.Thread(target=writer, args=(s, q), daemon=True) for s, q in zip(shards, queues)]
+        for w in writers:
+            w.start()
+
+        def extract(item):
+            path, name, mtime, size = item
+            return path, name, extract_text(Path(path), size), mtime, size
+
+        done = 0
+        try:
+            with ThreadPoolExecutor(EXTRACT_WORKERS, thread_name_prefix="extract") as pool:
+                pending: deque = deque()
+                items = iter(todo)
+                while True:
+                    while len(pending) < MAX_IN_FLIGHT:
+                        nxt = next(items, None)
+                        if nxt is None:
+                            break
+                        pending.append(pool.submit(extract, nxt))
+                    if not pending:
+                        break
+                    path, name, text, mtime, size = pending.popleft().result()
+                    queues[self.db.shard_for(path).index].put((path, name, text, mtime, size))
+                    done += 1
+                    self.progress["done"] = done
+        finally:
+            for q in queues:
+                q.put(None)
+            for w in writers:
+                w.join()
+        if errors:
+            raise errors[0]
+        return done
+
+    def index_paths(self, paths: list[str]) -> list[int]:
+        """Index specific files right away (used after an upload). Returns item ids."""
+        ids = []
+        for p in paths:
+            path = Path(p)
+            st = path.stat()
+            text = extract_text(path, st.st_size)
+            ids.append(self.db.upsert_file(str(path), path.name, text, st.st_mtime, st.st_size))
+        return ids
 
     def start_background(self, interval_seconds: int) -> threading.Thread:
         def loop():

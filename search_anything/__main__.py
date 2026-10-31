@@ -34,6 +34,8 @@ def main(argv: list[str] | None = None) -> None:
                         help="seconds of inactivity before the password vault locks")
     parser.add_argument("--allowed-host", action="append", default=None,
                         help="hostname allowed in the Host header (server mode; repeatable)")
+    parser.add_argument("--max-upload-mb", type=int, default=int(os.environ.get("SA_MAX_UPLOAD_MB", "200")),
+                        help="largest file accepted by the upload button")
     parser.add_argument("--https-cookie", action="store_true",
                         default=os.environ.get("SA_HTTPS_COOKIE") == "1",
                         help="mark the login cookie Secure (use behind HTTPS)")
@@ -66,6 +68,7 @@ def main(argv: list[str] | None = None) -> None:
         auto_lock_seconds=args.auto_lock,
         allowed_hosts=allowed_hosts,
         https_only_cookie=args.https_cookie,
+        max_upload_mb=args.max_upload_mb,
     )
     app = create_app(config)
     print(f"Search Anything ({args.mode} mode) → http://{'localhost' if host == '127.0.0.1' else host}:{args.port}")
