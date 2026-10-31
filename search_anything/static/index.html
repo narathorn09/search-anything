@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
   <title>Search Anything</title>
+  <script src="/static/prefs.js"></script>
   <link rel="preload" href="/static/fonts/google-sans-thai.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/static/fonts/google-sans-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/static/fonts/fonts.css">
@@ -22,61 +23,59 @@
     </form>
   </section>
 
-  <!-- Main app -->
+  <!-- Main app: by default only search, add and results are visible. -->
   <section id="main" class="hidden">
-    <nav id="filters" class="rail" aria-label="ประเภท">
-      <button data-kind="" class="rail-item active"><span class="label">ทั้งหมด</span><span class="count"></span></button>
-      <button data-kind="file" class="rail-item"><span class="label">ไฟล์</span><span class="count"></span></button>
-      <button data-kind="note" class="rail-item"><span class="label">โน้ต</span><span class="count"></span></button>
-      <button data-kind="bookmark" class="rail-item"><span class="label">ลิงก์</span><span class="count"></span></button>
-      <button data-kind="password" class="rail-item"><span class="label">รหัสผ่าน</span><span class="count"></span></button>
+    <!-- optional (Settings → ตัวกรองประเภท) -->
+    <nav id="filters" class="filters" aria-label="ประเภท">
+      <button data-kind="" class="filter-item active"><span class="label">ทั้งหมด</span><span class="count"></span></button>
+      <button data-kind="file" class="filter-item"><span class="label">ไฟล์</span><span class="count"></span></button>
+      <button data-kind="note" class="filter-item"><span class="label">โน้ต</span><span class="count"></span></button>
+      <button data-kind="bookmark" class="filter-item"><span class="label">ลิงก์</span><span class="count"></span></button>
+      <button data-kind="password" class="filter-item"><span class="label">รหัสผ่าน</span><span class="count"></span></button>
     </nav>
 
     <div class="frame">
-      <div class="frame-inner">
-        <header>
-          <div class="search-row">
-            <label class="input search">
-              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-              <input id="q" type="search" placeholder="ค้นหาทุกอย่าง… ไฟล์ เนื้อหา โน้ต ลิงก์ รหัสผ่าน" autocomplete="off" spellcheck="false">
-              <kbd class="hint">/</kbd>
-            </label>
-            <button id="vault-btn" class="btn outline icon-only xl" title="ตู้รหัสผ่าน"></button>
-            <button id="settings-btn" class="btn outline icon-only xl" title="ตั้งค่า">
-              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
-            </button>
-          </div>
-          <div class="subbar">
-            <div class="add-row">
-              <button class="btn primary sm" id="upload-btn">
-                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V4M7.5 8.5 12 4l4.5 4.5M5 15v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3"/></svg>
-                อัปโหลด
-              </button>
-              <input type="file" id="upload-input" multiple hidden>
-              <button class="btn secondary sm" data-new="note">+ โน้ต</button>
-              <button class="btn secondary sm" data-new="bookmark">+ ลิงก์</button>
-              <button class="btn secondary sm" data-new="password">+ รหัสผ่าน</button>
-            </div>
-          </div>
-        </header>
-
-        <div class="body">
-          <section class="list-col">
-            <div class="col-head"><span id="result-title">ล่าสุด</span><span id="result-count" class="secondary"></span></div>
-            <ul id="results"></ul>
-          </section>
-          <aside id="detail" class="hidden"></aside>
+      <header class="search-row">
+        <label class="input search">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input id="q" type="search" placeholder="ค้นหาทุกอย่าง…" autocomplete="off" spellcheck="false" aria-label="ค้นหา">
+          <kbd class="hint">/</kbd>
+        </label>
+        <div class="add-wrap">
+          <button id="add-btn" class="btn primary add" aria-haspopup="menu" aria-expanded="false" title="เพิ่ม">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+            <span class="add-label">เพิ่ม</span>
+          </button>
+          <div id="add-menu" class="menu hidden" role="menu"></div>
         </div>
+        <!-- optional (Settings → ปุ่มตู้รหัสผ่าน) -->
+        <button id="vault-btn" class="btn ghost icon-only opt-vault" title="ตู้รหัสผ่าน"></button>
+        <button id="settings-btn" class="btn ghost icon-only" title="ตั้งค่า" aria-label="ตั้งค่า">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
+        </button>
+        <input type="file" id="upload-input" multiple hidden>
+      </header>
+
+      <div class="body">
+        <section class="list-col">
+          <div class="col-head"><span id="result-title"></span><span id="result-count" class="secondary"></span></div>
+          <ul id="results"></ul>
+        </section>
+        <!-- details: a drawer that opens on click, or a side column (Settings → รายละเอียด) -->
+        <aside id="detail" aria-label="รายละเอียด"></aside>
       </div>
     </div>
 
+    <!-- optional (Settings → แถบสถานะ) -->
     <footer class="secondary">
-      <span><kbd>/</kbd> ค้นหา · <kbd>↑</kbd><kbd>↓</kbd> เลือก · <kbd>Enter</kbd> เปิด/คัดลอก · <kbd>Esc</kbd> ล้าง</span>
+      <span><kbd>/</kbd> ค้นหา · <kbd>↑</kbd><kbd>↓</kbd> เลือก · <kbd>Enter</kbd> เปิด · <kbd>Shift</kbd>+<kbd>Enter</kbd> รายละเอียด · <kbd>Esc</kbd> ปิด/ล้าง</span>
       <span id="status-line"></span>
     </footer>
   </section>
 
-  <!-- Generic modal -->
+  <div id="scrim" class="hidden"></div>
+  <aside id="settings" class="sheet hidden" aria-label="ตั้งค่า"></aside>
+
   <dialog id="modal"><form method="dialog" id="modal-form" class="panel"></form></dialog>
   <div id="toast" class="hidden"></div>
   <div id="upload-panel" class="hidden" role="status">
