@@ -43,8 +43,8 @@ PRAGMAS = (
     "PRAGMA journal_mode=WAL",
     "PRAGMA synchronous=NORMAL",
     "PRAGMA temp_store=MEMORY",
-    "PRAGMA cache_size=-32768",
-    "PRAGMA mmap_size=268435456",
+    "PRAGMA cache_size=-16384",  # 16 MB per connection
+    "PRAGMA mmap_size=0",  # keep memory use predictable (the scan brake watches RSS)
 )
 
 ITEMS_SCHEMA = """
@@ -103,7 +103,8 @@ CREATE VIRTUAL TABLE IF NOT EXISTS files_fts USING fts5(title, path, body, token
 
 
 def _connect(path: str) -> sqlite3.Connection:
-    conn = sqlite3.connect(path, check_same_thread=False)
+    # The scan worker process writes while this process reads/writes: wait for locks.
+    conn = sqlite3.connect(path, check_same_thread=False, timeout=30)
     conn.row_factory = sqlite3.Row
     for pragma in PRAGMAS:
         if path == ":memory:" and "journal_mode" in pragma:
@@ -119,6 +120,26 @@ def _like(term: str) -> str:
 def _match(terms: list[str]) -> str:
     """FTS5 query: every term must appear; quoting makes syntax characters literal."""
     return " AND ".join('"' + t.replace('"', '""') + '"' for t in terms)
+
+
+def _size_key(r: dict):
+    size = r.get("size")
+    if size is None:  # notes/links/passwords: by text length
+        size = len(r.get("body") or "")
+    return -size
+
+
+SORT_POOL = 500
+KIND_ORDER = {"file": 0, "note": 1, "bookmark": 2, "password": 3}
+SORTS = {
+    "relevance": None,
+    "newest": lambda r: -(r.get("updated_at") or 0),
+    "oldest": lambda r: r.get("updated_at") or 0,
+    "name": lambda r: (r.get("title") or "").casefold(),
+    "name_desc": lambda r: [-ord(c) for c in (r.get("title") or "").casefold()],
+    "largest": _size_key,
+    "type": lambda r: (KIND_ORDER.get(r["kind"], 9), (r.get("title") or "").casefold()),
+}
 
 
 def split_terms(query: str) -> tuple[list[str], list[str]]:
@@ -264,6 +285,11 @@ class Database:
                 self.conn.execute("DELETE FROM items WHERE kind='file'")
                 self.conn.commit()
             self.set_meta("schema", 2)
+        # A new, empty file index is already "extracted" with the current code.
+        if self.get_meta("extractor_version") is None and not any(s.count() for s in self.shards):
+            from .extractors import EXTRACTOR_VERSION
+
+            self.set_meta("extractor_version", EXTRACTOR_VERSION)
 
     # ------------------------------------------------------------------ meta
     def get_meta(self, key: str, default: Any = None) -> Any:
@@ -348,10 +374,10 @@ class Database:
             self.conn.commit()
             return cur.rowcount > 0
 
-    def get_item(self, item_id: int) -> dict | None:
+    def get_item(self, item_id: int, max_chars: int = 20000) -> dict | None:
         loc = self._split_file_id(item_id)
         if loc:
-            return loc[0].get(loc[1])
+            return loc[0].get(loc[1], max_chars)
         with self._lock:
             row = self.conn.execute("SELECT * FROM items WHERE id=?", (item_id,)).fetchone()
         return dict(row) if row else None
@@ -365,7 +391,14 @@ class Database:
         return result
 
     # ---------------------------------------------------------------- search
-    def search(self, query: str, kind: str | None = None, limit: int = 50) -> list[dict]:
+    def search(self, query: str, kind: str | None = None, limit: int = 50, sort: str = "relevance") -> list[dict]:
+        """Search everything. ``sort`` other than "relevance" re-orders the best
+        ``SORT_POOL`` matches (so it stays fast with very common words)."""
+        if sort not in SORTS:
+            raise ValueError(f"unknown sort: {sort}")
+        if sort != "relevance":
+            pool = self.search(query, kind, max(limit, SORT_POOL), "relevance")
+            return sorted(pool, key=SORTS[sort])[:limit]
         long_terms, short_terms = split_terms(query)
         if not long_terms and not short_terms:
             return self.recent(kind, limit)

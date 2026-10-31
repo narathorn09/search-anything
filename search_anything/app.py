@@ -22,7 +22,10 @@ from starlette.middleware.sessions import SessionMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .db import Database
-from .indexer import Indexer
+from .extractors import MAX_TEXT_CHARS, SUPPORTED, decode, is_plain_text_type
+from .indexer import Indexer, ScanSettings
+from .worker import ProcessIndexer
+from .resources import CONTAINER, CPU_COUNT, PROFILES, ram_limits_mb
 from .vault import Vault, VaultError, VaultLocked
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -42,6 +45,7 @@ class Config:
     scrypt_n: int = 2**15
     background_indexing: bool = True
     max_upload_mb: int = 200
+    worker_process: bool = True  # scan in a separate low-priority process
 
 
 # ----------------------------------------------------------------- schemas
@@ -65,6 +69,12 @@ class ItemIn(BaseModel):
 
 class FoldersIn(BaseModel):
     folders: list[str]
+
+
+class ScanSettingsIn(BaseModel):
+    profile: Literal["eco", "balanced", "fast"]
+    auto: bool
+    interval_minutes: int = Field(ge=1, le=24 * 60)
 
 
 # ----------------------------------------------------------------- helpers
@@ -133,7 +143,9 @@ def create_app(config: Config) -> FastAPI:
         user_folders = list(dict.fromkeys([*db.get_meta("folders", []), *user_folders]))
         db.set_meta("folders", user_folders)
     # The uploads folder is always indexed, in both modes.
-    indexer = Indexer(db, [*user_folders, str(upload_dir)])
+    scan_settings = ScanSettings.from_dict(db.get_meta("scan_settings"), max(1, config.reindex_interval // 60))
+    indexer_cls = ProcessIndexer if config.worker_process else Indexer
+    indexer = indexer_cls(db, [*user_folders, str(upload_dir)], scan_settings)
     max_upload = config.max_upload_mb * 1024 * 1024
 
     def is_upload(path: str | None) -> bool:
@@ -155,8 +167,8 @@ def create_app(config: Config) -> FastAPI:
     # In local mode this blocks DNS-rebinding attacks from malicious websites.
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts)
 
-    if config.background_indexing and indexer.folders:
-        indexer.start_background(config.reindex_interval)
+    if config.background_indexing:
+        indexer.start_background()
 
     failed_logins: dict[str, list[float]] = {}
 
@@ -225,7 +237,6 @@ def create_app(config: Config) -> FastAPI:
         authed = config.mode == "local" or bool(request.session.get("auth"))
         result = {"mode": config.mode, "authenticated": authed}
         if authed:
-            stats = indexer.last_stats
             result.update(
                 {
                     "vault": {"set_up": vault.is_set_up, "unlocked": vault.is_unlocked},
@@ -234,23 +245,29 @@ def create_app(config: Config) -> FastAPI:
                     "can_edit_folders": config.mode == "local",
                     "can_upload": True,
                     "max_upload_mb": config.max_upload_mb,
-                    "indexing": {
-                        "running": indexer.running,
-                        "progress": dict(indexer.progress),
-                        "last": stats.__dict__ if stats else None,
+                    "indexing": indexer.status(),
+                    "profiles": {
+                        k: {"label": p.label, "max_cpu": p.max_cpu, "max_ram_mb": ram_limits_mb(p)[0],
+                            "threads": p.extract_workers, "parallel_writes": p.write_parallel}
+                        for k, p in PROFILES.items()
                     },
+                    "cpu_count": CPU_COUNT,
+                    "container": {"cpus": CONTAINER.cpus,
+                                  "memory_mb": round(CONTAINER.memory_bytes / 1e6) if CONTAINER.memory_bytes else None},
+                    "supported_formats": SUPPORTED,
                 }
             )
         return result
 
     # ----------------------------------------------------------- search
     @app.get("/api/search", dependencies=[Depends(require_auth)])
-    def search(q: str = "", kind: str | None = None, limit: int = 50):
+    def search(q: str = "", kind: str | None = None, limit: int = 50,
+               sort: Literal["relevance", "newest", "oldest", "name", "name_desc", "largest", "type"] = "relevance"):
         if kind in ("", "all"):
             kind = None
         limit = max(1, min(limit, 200))
         terms = q.split()
-        rows = db.search(q, kind, limit)
+        rows = db.search(q, kind, limit, sort)
         return {"query": q, "results": [serialize(r, terms) for r in rows]}
 
     # ------------------------------------------------------------ items
@@ -310,6 +327,40 @@ def create_app(config: Config) -> FastAPI:
         db.delete_item(item_id)
         return {"ok": True}
 
+    VIEW_MAX_BYTES = 10 * 1024 * 1024
+    VIEW_MAX_LINES = 50_000
+
+    @app.get("/api/items/{item_id}/lines", dependencies=[Depends(require_auth)])
+    def item_lines(item_id: int):
+        """Full text split into lines, for the in-app viewer.
+
+        Plain-text/code files are read from disk, so line numbers match the
+        real file. Other formats (PDF, Office …) use the text extracted into
+        the index."""
+        row = get_or_404(item_id)
+        if row["kind"] not in ("file", "note"):
+            raise HTTPException(400, "nothing to show for this item")
+        source = "index"
+        if row["kind"] == "note":
+            text = json.loads(row["extra"] or "{}").get("content", "")
+        else:
+            path = Path(row["path"])
+            text = None
+            try:
+                if is_plain_text_type(path) and path.stat().st_size <= VIEW_MAX_BYTES:
+                    text, source = decode(path.read_bytes()), "disk"
+            except OSError:
+                pass
+            if text is None:
+                full = db.get_item(item_id, max_chars=MAX_TEXT_CHARS) or {}
+                text = full.get("body") or ""
+        lines = text.splitlines() or [""]
+        truncated = len(lines) > VIEW_MAX_LINES
+        return {
+            "id": row["id"], "kind": row["kind"], "title": row["title"], "path": row.get("path"),
+            "source": source, "total_lines": len(lines), "truncated": truncated, "lines": lines[:VIEW_MAX_LINES],
+        }
+
     @app.post("/api/items/{item_id}/reveal", dependencies=[Depends(require_auth)])
     def reveal(item_id: int):
         row = get_or_404(item_id)
@@ -348,10 +399,28 @@ def create_app(config: Config) -> FastAPI:
         return {"ok": True}
 
     # ------------------------------------------------------------ files
-    @app.post("/api/reindex", dependencies=[Depends(require_auth)])
-    def reindex():
+    @app.post("/api/scan/start", dependencies=[Depends(require_auth)])
+    @app.post("/api/reindex", dependencies=[Depends(require_auth)])  # old name
+    def scan_start():
         indexer.trigger()
         return {"ok": True}
+
+    @app.post("/api/scan/stop", dependencies=[Depends(require_auth)])
+    def scan_stop():
+        return {"stopped": indexer.stop()}
+
+    @app.delete("/api/scan/skipped", dependencies=[Depends(require_auth)])
+    def scan_clear_skipped():
+        """Forget files that crashed the scanner, so the next scan tries them again."""
+        cleared = indexer.clear_skipped() if isinstance(indexer, ProcessIndexer) else 0
+        return {"cleared": cleared}
+
+    @app.put("/api/scan/settings", dependencies=[Depends(require_auth)])
+    def scan_settings_update(data: ScanSettingsIn):
+        settings = ScanSettings.from_dict(data.model_dump())
+        db.set_meta("scan_settings", data.model_dump())
+        indexer.update_settings(settings)
+        return indexer.status()["settings"]
 
     @app.put("/api/folders", dependencies=[Depends(require_auth), Depends(require_local)])
     def set_folders(data: FoldersIn):
