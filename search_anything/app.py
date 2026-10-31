@@ -8,13 +8,13 @@ import os
 import secrets
 import subprocess
 import sys
-import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Request, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -41,6 +41,7 @@ class Config:
     https_only_cookie: bool = False
     scrypt_n: int = 2**15
     background_indexing: bool = True
+    max_upload_mb: int = 200
 
 
 # ----------------------------------------------------------------- schemas
@@ -122,20 +123,21 @@ def create_app(config: Config) -> FastAPI:
         raise ValueError("server mode requires a login password (SA_PASSWORD)")
 
     config.data_dir.mkdir(parents=True, exist_ok=True)
-    upload_dir = config.data_dir / "uploads"
+    upload_dir = (config.data_dir / "uploads").resolve()
+    upload_dir.mkdir(exist_ok=True)
     db = Database(config.data_dir / "search.db")
 
-    folders = config.folders
+    user_folders = [str(Path(f).expanduser().resolve()) for f in config.folders]
     if config.mode == "local":
         # Folders chosen in the UI are remembered; CLI folders are added on top.
-        saved = db.get_meta("folders", [])
-        folders = list(dict.fromkeys([*saved, *config.folders]))
-    else:
-        upload_dir.mkdir(exist_ok=True)
-        folders = list(dict.fromkeys([*config.folders, str(upload_dir)]))
-    indexer = Indexer(db, folders)
-    if config.mode == "local":
-        db.set_meta("folders", indexer.folders)
+        user_folders = list(dict.fromkeys([*db.get_meta("folders", []), *user_folders]))
+        db.set_meta("folders", user_folders)
+    # The uploads folder is always indexed, in both modes.
+    indexer = Indexer(db, [*user_folders, str(upload_dir)])
+    max_upload = config.max_upload_mb * 1024 * 1024
+
+    def is_upload(path: str | None) -> bool:
+        return bool(path) and Path(path).parent == upload_dir
     vault = Vault(db, config.auto_lock_seconds, config.scrypt_n)
 
     app = FastAPI(title="Search Anything", docs_url=None, redoc_url=None)
@@ -172,7 +174,7 @@ def create_app(config: Config) -> FastAPI:
             raise HTTPException(404, "not found")
         return row
 
-    def serialize(row, terms: list[str] | None = None, full: bool = False) -> dict:
+    def serialize(row: dict, terms: list[str] | None = None, full: bool = False) -> dict:
         extra = json.loads(row["extra"] or "{}")
         data = {
             "id": row["id"],
@@ -183,12 +185,12 @@ def create_app(config: Config) -> FastAPI:
             "username": extra.get("username", ""),
             "tags": extra.get("tags", []),
         }
-        body = row["body"]
+        body = row.get("body") or ""
         if row["kind"] == "file":
             data["path"] = row["path"]
             data["size"] = row["size"]
             data["mtime"] = row["mtime"]
-            body = body.split("\n", 1)[1] if "\n" in body else ""
+            data["uploaded"] = is_upload(row["path"])
         if terms is not None:
             data["snippet"] = make_snippet(body, terms)
         if full:
@@ -228,11 +230,13 @@ def create_app(config: Config) -> FastAPI:
                 {
                     "vault": {"set_up": vault.is_set_up, "unlocked": vault.is_unlocked},
                     "counts": db.counts(),
-                    "folders": indexer.folders,
+                    "folders": [f for f in indexer.folders if f != str(upload_dir)],
                     "can_edit_folders": config.mode == "local",
-                    "can_upload": config.mode == "server",
+                    "can_upload": True,
+                    "max_upload_mb": config.max_upload_mb,
                     "indexing": {
                         "running": indexer.running,
+                        "progress": dict(indexer.progress),
                         "last": stats.__dict__ if stats else None,
                     },
                 }
@@ -297,7 +301,12 @@ def create_app(config: Config) -> FastAPI:
     def delete_item(item_id: int):
         row = get_or_404(item_id)
         if row["kind"] == "file":
-            raise HTTPException(400, "files are removed by deleting them from disk")
+            # Only files uploaded through the app can be deleted from here.
+            if not is_upload(row["path"]):
+                raise HTTPException(400, "only uploaded files can be deleted here")
+            Path(row["path"]).unlink(missing_ok=True)
+            db.delete_paths([row["path"]])
+            return {"ok": True}
         db.delete_item(item_id)
         return {"ok": True}
 
@@ -350,10 +359,11 @@ def create_app(config: Config) -> FastAPI:
         missing = [f for f in cleaned if not Path(f).expanduser().is_dir()]
         if missing:
             raise HTTPException(400, f"folder not found: {', '.join(missing)}")
-        indexer.set_folders(cleaned)
-        db.set_meta("folders", indexer.folders)
+        resolved = [str(Path(f).expanduser().resolve()) for f in cleaned]
+        indexer.set_folders([*resolved, str(upload_dir)])
+        db.set_meta("folders", resolved)
         indexer.trigger()
-        return {"folders": indexer.folders}
+        return {"folders": resolved}
 
     def file_row(item_id: int):
         row = get_or_404(item_id)
@@ -375,22 +385,32 @@ def create_app(config: Config) -> FastAPI:
 
     @app.post("/api/upload", dependencies=[Depends(require_auth)])
     async def upload(files: list[UploadFile]):
-        if config.mode != "server":
-            raise HTTPException(403, "only available in server mode")
-        saved = []
-        for f in files:
-            name = Path(f.filename or "upload").name.lstrip(".") or "upload"
-            target = upload_dir / name
-            stem, suffix, n = target.stem, target.suffix, 1
-            while target.exists():
-                target = upload_dir / f"{stem} ({n}){suffix}"
-                n += 1
-            with target.open("wb") as out:
-                while chunk := await f.read(1024 * 1024):
-                    out.write(chunk)
-            saved.append(target.name)
-        indexer.trigger()
-        return {"saved": saved}
+        saved: list[Path] = []
+        try:
+            for f in files:
+                # Keep only the base name (handles both / and \\), drop leading dots.
+                raw = (f.filename or "upload").replace("\\", "/").split("/")[-1]
+                name = raw.lstrip(".").strip() or "upload"
+                target = upload_dir / name
+                stem, suffix, n = target.stem, target.suffix, 1
+                while target.exists():
+                    target = upload_dir / f"{stem} ({n}){suffix}"
+                    n += 1
+                written = 0
+                with target.open("wb") as out:
+                    saved.append(target)
+                    while chunk := await f.read(1024 * 1024):
+                        written += len(chunk)
+                        if written > max_upload:
+                            raise HTTPException(413, f"{name}: larger than {config.max_upload_mb} MB")
+                        out.write(chunk)
+        except BaseException:
+            for path in saved:  # don't leave half-written files behind
+                path.unlink(missing_ok=True)
+            raise
+        # Index right away so the files are searchable when the request returns.
+        ids = await run_in_threadpool(indexer.index_paths, [str(p) for p in saved])
+        return {"saved": [p.name for p in saved], "items": [serialize(db.get_item(i)) for i in ids]}
 
     # ------------------------------------------------------------- ui
     @app.get("/")

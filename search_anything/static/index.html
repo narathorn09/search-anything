@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
   <title>Search Anything</title>
+  <link rel="preload" href="/static/fonts/google-sans-thai.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/static/fonts/google-sans-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/static/fonts/fonts.css">
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
@@ -45,6 +48,11 @@
           </div>
           <div class="subbar">
             <div class="add-row">
+              <button class="btn primary sm" id="upload-btn">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V4M7.5 8.5 12 4l4.5 4.5M5 15v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3"/></svg>
+                อัปโหลด
+              </button>
+              <input type="file" id="upload-input" multiple hidden>
               <button class="btn secondary sm" data-new="note">+ โน้ต</button>
               <button class="btn secondary sm" data-new="bookmark">+ ลิงก์</button>
               <button class="btn secondary sm" data-new="password">+ รหัสผ่าน</button>
@@ -71,6 +79,17 @@
   <!-- Generic modal -->
   <dialog id="modal"><form method="dialog" id="modal-form" class="panel"></form></dialog>
   <div id="toast" class="hidden"></div>
+  <div id="upload-panel" class="hidden" role="status">
+    <div class="label"></div>
+    <div class="bar"><span></span></div>
+  </div>
+  <div id="drop-zone" class="hidden" aria-hidden="true">
+    <div class="drop-card">
+      <svg class="icon" viewBox="0 0 24 24"><path d="M12 15V4M7.5 8.5 12 4l4.5 4.5M5 15v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3"/></svg>
+      <strong>วางไฟล์เพื่ออัปโหลด</strong>
+      <span>ไฟล์จะถูกเก็บไว้และค้นหาได้ทันที</span>
+    </div>
+  </div>
 
   <script src="/static/app.js"></script>
 </body>

@@ -14,6 +14,8 @@ const ICONS = {
   copy: '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h8"/>',
   eye: '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/>',
   open: '<path d="M14 4h6v6M20 4l-9 9M18 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4"/>',
+  upload: '<path d="M12 15V4M7.5 8.5 12 4l4.5 4.5M5 15v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3"/>',
+  trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/>',
 };
 const icon = (name) => {
   const s = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -33,7 +35,7 @@ async function api(path, options = {}) {
     opts.headers["Content-Type"] = "application/json";
     opts.body = JSON.stringify(opts.body);
   }
-  const res = await fetch(path, opts);
+  const res = await fetch(path, opts);  // opts.signal lets callers cancel
   let data = null;
   try { data = await res.json(); } catch { /* empty body */ }
   if (!res.ok) {
@@ -212,15 +214,18 @@ async function revealPassword(id) {
 let debounce;
 function scheduleSearch() {
   clearTimeout(debounce);
-  debounce = setTimeout(search, 120);
+  debounce = setTimeout(search, 80);
 }
 
+let searchAbort = null;
 async function search() {
   const seq = ++state.seq;
   const q = $("#q").value.trim();
   const params = new URLSearchParams({ q, kind: state.kind, limit: 80 });
+  if (searchAbort) searchAbort.abort(); // drop the request for older keystrokes
+  searchAbort = new AbortController();
   try {
-    const data = await api(`/api/search?${params}`);
+    const data = await api(`/api/search?${params}`, { signal: searchAbort.signal });
     if (seq !== state.seq) return; // a newer search already finished
     state.results = data.results;
     state.selected = data.results.length ? 0 : -1;
@@ -228,6 +233,7 @@ async function search() {
     if (state.selected >= 0) showDetail(state.results[0].id);
     else hideDetail();
   } catch (e) {
+    if (e.name === "AbortError") return;
     if (e.status === 401) return showLogin();
     toast(e.message);
   }
@@ -250,7 +256,7 @@ function renderResults() {
   if (!state.results.length) {
     ul.append(el("li", { class: "empty reveal" },
       el("strong", {}, t.length ? "ไม่พบผลลัพธ์" : "ยังไม่มีข้อมูล"),
-      t.length ? "ลองคำอื่น หรือเปลี่ยนประเภททางซ้าย" : "เพิ่มโน้ต ลิงก์ รหัสผ่าน หรือเลือกโฟลเดอร์ที่ปุ่มตั้งค่า"));
+      t.length ? "ลองคำอื่น หรือเปลี่ยนประเภททางซ้าย" : "เพิ่มโน้ต ลิงก์ รหัสผ่าน อัปโหลดไฟล์ หรือเลือกโฟลเดอร์ที่ปุ่มตั้งค่า"));
     return;
   }
   state.results.forEach((r, i) => {
@@ -318,7 +324,8 @@ async function showDetail(id) {
       el("div", {}, el("strong", {}, fmtShortDate(item.mtime)), el("span", {}, "แก้ไขล่าสุด"))));
     parts.push(el("div", { class: "actions" },
       btn(state.status.mode === "local" ? "เปิดไฟล์" : "ดาวน์โหลด", () => openFile(item.id), "primary", "open"),
-      btn("คัดลอก path", () => copy(item.path, "คัดลอก path แล้ว"), "secondary", "copy")));
+      btn("คัดลอก path", () => copy(item.path, "คัดลอก path แล้ว"), "secondary", "copy"),
+      item.uploaded ? btn("ลบไฟล์", () => deleteItem(item), "danger", "trash") : null));
     parts.push(item.content
       ? el("pre", {}, highlight(item.content.slice(0, 20000), t))
       : el("p", { class: "secondary" }, "ไม่มีเนื้อหาที่อ่านได้ (ค้นได้จากชื่อไฟล์)"));
@@ -396,7 +403,8 @@ async function editItem(id, kind) {
 }
 
 async function deleteItem(item) {
-  if (!confirm(`ลบ "${item.title}" ?`)) return;
+  const what = item.kind === "file" ? `ลบไฟล์ "${item.title}" ออกจากเครื่อง/เซิร์ฟเวอร์?` : `ลบ "${item.title}" ?`;
+  if (!confirm(what)) return;
   await api(`/api/items/${item.id}`, { method: "DELETE" });
   toast("ลบแล้ว");
   await refreshStatus();
@@ -433,17 +441,6 @@ async function openSettings() {
     form.append(el("div", { class: "field" }, el("label", {}, "โฟลเดอร์ที่ค้นหา (ตั้งค่าตอนรันเซิร์ฟเวอร์)"),
       el("ul", { class: "chips", style: "list-style:none;margin:0;padding:0" }, s.folders.map((f) => el("li", { class: "chip" }, f)))));
   }
-  if (s.can_upload) {
-    const file = el("input", { type: "file", multiple: "" });
-    form.append(el("div", { class: "field" }, el("label", {}, "อัปโหลดไฟล์ขึ้นเซิร์ฟเวอร์เพื่อให้ค้นหาได้"), el("div", { class: "input" }, file)),
-      el("div", { class: "actions-row", style: "justify-content:flex-start;margin:0" }, btn("อัปโหลด", async () => {
-        if (!file.files.length) return;
-        const fd = new FormData();
-        for (const f of file.files) fd.append("files", f);
-        try { await api("/api/upload", { method: "POST", body: fd }); toast("อัปโหลดแล้ว"); dlg.close(); pollIndexing(); }
-        catch (e) { toast(e.message); }
-      }, "secondary")));
-  }
   form.append(el("div", { class: "actions-row" },
     s.mode === "server" ? btn("ออกจากระบบ", async () => { await api("/api/logout", { method: "POST" }); dlg.close(); showLogin(); }, "danger") : null,
     btn("สแกนไฟล์ใหม่", async () => { await api("/api/reindex", { method: "POST" }); toast("กำลังสแกนใหม่…"); dlg.close(); pollIndexing(); }, "secondary"),
@@ -474,7 +471,9 @@ async function refreshStatus() {
   const vb = $("#vault-btn");
   vb.replaceChildren(icon(s.vault.unlocked ? "unlock" : "lock"));
   vb.title = s.vault.unlocked ? "ล็อกตู้รหัสผ่าน" : "ปลดล็อกตู้รหัสผ่าน";
-  $("#status-line").textContent = s.indexing.running ? "กำลังสแกนไฟล์…" : `${s.mode === "local" ? "Local" : "Server"} · ${total.toLocaleString()} รายการ`;
+  const pr = s.indexing.progress || {};
+  $("#status-line").textContent = !s.indexing.running ? `${s.mode === "local" ? "Local" : "Server"} · ${total.toLocaleString()} รายการ`
+    : pr.phase === "indexing" ? `กำลังสแกนไฟล์ ${pr.done.toLocaleString()} / ${pr.total.toLocaleString()}` : "กำลังสำรวจโฟลเดอร์…";
 }
 
 function showLogin() {
@@ -490,6 +489,75 @@ async function showMain() {
   $("#q").focus();
   search();
 }
+
+// ----------------------------------------------------------------- upload
+function uploadFiles(fileList) {
+  const files = [...fileList];
+  if (!files.length) return;
+  const limit = (state.status.max_upload_mb || 200) * 1024 * 1024;
+  const tooBig = files.filter((f) => f.size > limit);
+  if (tooBig.length) return toast(`ไฟล์ใหญ่เกิน ${state.status.max_upload_mb} MB: ${tooBig.map((f) => f.name).join(", ")}`);
+
+  const panel = $("#upload-panel");
+  const bar = panel.querySelector(".bar > span");
+  const label = panel.querySelector(".label");
+  const total = files.reduce((a, f) => a + f.size, 0);
+  label.textContent = files.length === 1 ? `กำลังอัปโหลด ${files[0].name}` : `กำลังอัปโหลด ${files.length} ไฟล์ (${fmtSize(total)})`;
+  bar.style.width = "0%";
+  panel.classList.remove("hidden");
+
+  const fd = new FormData();
+  for (const f of files) fd.append("files", f, f.name);
+  const xhr = new XMLHttpRequest(); // fetch() has no upload progress events
+  xhr.open("POST", "/api/upload");
+  xhr.upload.onprogress = (e) => {
+    if (!e.lengthComputable) return;
+    const pct = Math.round((e.loaded / e.total) * 100);
+    bar.style.width = `${pct}%`;
+    if (pct >= 100) label.textContent = "กำลังอ่านเนื้อหาไฟล์…";
+  };
+  xhr.onload = async () => {
+    panel.classList.add("hidden");
+    let data = null;
+    try { data = JSON.parse(xhr.responseText); } catch { /* not json */ }
+    if (xhr.status !== 200) return toast((data && data.detail) || `อัปโหลดไม่สำเร็จ (${xhr.status})`);
+    toast(`อัปโหลดแล้ว ${data.saved.length} ไฟล์`);
+    await refreshStatus();
+    // Show what was just uploaded.
+    $("#q").value = "";
+    state.kind = "file";
+    document.querySelectorAll("#filters [data-kind]").forEach((c) => c.classList.toggle("active", c.dataset.kind === "file"));
+    await search();
+    const first = data.items[0] && state.results.findIndex((r) => r.id === data.items[0].id);
+    if (first >= 0) select(first);
+  };
+  xhr.onerror = () => { panel.classList.add("hidden"); toast("อัปโหลดไม่สำเร็จ (เชื่อมต่อไม่ได้)"); };
+  xhr.send(fd);
+}
+
+$("#upload-input").addEventListener("change", (e) => { uploadFiles(e.target.files); e.target.value = ""; });
+$("#upload-btn").addEventListener("click", () => $("#upload-input").click());
+
+// Drag files anywhere onto the window.
+let dragDepth = 0;
+const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes("Files");
+window.addEventListener("dragenter", (e) => {
+  if (!hasFiles(e) || $("#main").classList.contains("hidden")) return;
+  e.preventDefault();
+  if (++dragDepth === 1) $("#drop-zone").classList.remove("hidden");
+});
+window.addEventListener("dragover", (e) => { if (hasFiles(e)) e.preventDefault(); });
+window.addEventListener("dragleave", (e) => {
+  if (!hasFiles(e)) return;
+  if (--dragDepth <= 0) { dragDepth = 0; $("#drop-zone").classList.add("hidden"); }
+});
+window.addEventListener("drop", (e) => {
+  if (!hasFiles(e)) return;
+  e.preventDefault();
+  dragDepth = 0;
+  $("#drop-zone").classList.add("hidden");
+  if (!$("#main").classList.contains("hidden")) uploadFiles(e.dataTransfer.files);
+});
 
 // ----------------------------------------------------------------- events
 $("#login-form").addEventListener("submit", async (e) => {

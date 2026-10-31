@@ -1,6 +1,7 @@
 /*
  * Design tokens modelled on the neutral, rounded style of fastwork.com's
  * "profile showcase" (values measured from the live page; code written fresh).
+ * Font: Google Sans (OFL), bundled in static/fonts so it works offline.
  */
 :root {
   color-scheme: light dark;
@@ -37,7 +38,7 @@
   --tag-purple-bg: #eccef3; --tag-purple-fg: #700084;
 
   /* type */
-  --font-family-body: "Google Sans", "Google Sans Text", "Noto Sans Thai", -apple-system, BlinkMacSystemFont,
+  --font-family-body: "Google Sans", "Noto Sans Thai", -apple-system, BlinkMacSystemFont,
     "Avenir Next", Avenir, "Segoe UI", "Helvetica Neue", Ubuntu, Roboto, "Noto Sans", Helvetica, Arial, sans-serif;
   --font-family-code: ui-monospace, "SF Mono", Monaco, Consolas, "Liberation Mono", monospace;
   --text-supporting: 0.875rem;
@@ -292,6 +293,28 @@ dialog .note { font-size: var(--text-supporting); color: var(--color-text-second
   background: var(--color-text-primary); color: var(--color-background-surface); font-size: 15px;
 }
 
+/* --------------------------------------------------------------- upload */
+#upload-panel {
+  position: fixed; right: var(--space-4); bottom: var(--space-4); z-index: 400; width: min(360px, calc(100vw - 32px));
+  display: grid; gap: var(--space-1-5); padding: var(--space-3); border-radius: var(--radius-container);
+  background: var(--color-background-surface); box-shadow: var(--shadow-high); font-size: var(--text-supporting);
+}
+#upload-panel .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#upload-panel .bar { height: 6px; border-radius: 999px; background: var(--color-background-muted); overflow: hidden; }
+#upload-panel .bar > span { display: block; height: 100%; width: 0; border-radius: inherit; background: var(--color-accent); transition: width .2s var(--ease-standard); }
+#drop-zone {
+  position: fixed; inset: 0; z-index: 600; display: grid; place-items: center; padding: var(--space-6);
+  background: rgb(255 255 255 / .72); backdrop-filter: blur(6px); pointer-events: none;
+}
+@media (prefers-color-scheme: dark) { #drop-zone { background: rgb(27 27 27 / .72); } }
+.drop-card {
+  width: min(560px, 100%); padding: 64px var(--space-6); display: grid; justify-items: center; gap: var(--space-1-5); text-align: center;
+  border: 2px dashed var(--color-border-emphasized); border-radius: var(--radius-frame); background: var(--color-background-surface);
+  color: var(--color-text-secondary); box-shadow: var(--shadow-high);
+}
+.drop-card .icon { width: 40px; height: 40px; color: var(--color-text-primary); }
+.drop-card strong { font-size: 23px; font-weight: 500; color: var(--color-text-heading); }
+
 /* --------------------------------------------------------------- motion */
 @media (prefers-reduced-motion: no-preference) {
   /* Results / panels fade in with a soft blur and a short rise, staggered. */
@@ -316,6 +339,9 @@ dialog .note { font-size: var(--text-supporting); color: var(--color-text-second
   @keyframes pop-in { from { opacity: 0; transform: translateY(8px) scale(.97); } to { opacity: 1; transform: none; } }
   @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 
+  #upload-panel:not(.hidden) { animation: pop-in .32s var(--ease-out-expo) both; }
+  #drop-zone:not(.hidden) { animation: fade-in .2s var(--ease-standard) both; }
+  #drop-zone:not(.hidden) .drop-card { animation: pop-in .36s var(--ease-out-expo) both; }
   #toast:not(.hidden) { animation: toast-in var(--duration-medium) var(--ease-standard) both; }
   @keyframes toast-in { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translateX(-50%); } }
 }
