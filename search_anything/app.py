@@ -22,7 +22,8 @@ from starlette.middleware.sessions import SessionMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .db import Database
-from .indexer import Indexer
+from .indexer import Indexer, ScanSettings
+from .resources import CPU_COUNT, PROFILES
 from .vault import Vault, VaultError, VaultLocked
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -65,6 +66,12 @@ class ItemIn(BaseModel):
 
 class FoldersIn(BaseModel):
     folders: list[str]
+
+
+class ScanSettingsIn(BaseModel):
+    profile: Literal["eco", "balanced", "fast"]
+    auto: bool
+    interval_minutes: int = Field(ge=1, le=24 * 60)
 
 
 # ----------------------------------------------------------------- helpers
@@ -133,7 +140,8 @@ def create_app(config: Config) -> FastAPI:
         user_folders = list(dict.fromkeys([*db.get_meta("folders", []), *user_folders]))
         db.set_meta("folders", user_folders)
     # The uploads folder is always indexed, in both modes.
-    indexer = Indexer(db, [*user_folders, str(upload_dir)])
+    scan_settings = ScanSettings.from_dict(db.get_meta("scan_settings"), max(1, config.reindex_interval // 60))
+    indexer = Indexer(db, [*user_folders, str(upload_dir)], scan_settings)
     max_upload = config.max_upload_mb * 1024 * 1024
 
     def is_upload(path: str | None) -> bool:
@@ -155,8 +163,8 @@ def create_app(config: Config) -> FastAPI:
     # In local mode this blocks DNS-rebinding attacks from malicious websites.
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts)
 
-    if config.background_indexing and indexer.folders:
-        indexer.start_background(config.reindex_interval)
+    if config.background_indexing:
+        indexer.start_background()
 
     failed_logins: dict[str, list[float]] = {}
 
@@ -225,7 +233,6 @@ def create_app(config: Config) -> FastAPI:
         authed = config.mode == "local" or bool(request.session.get("auth"))
         result = {"mode": config.mode, "authenticated": authed}
         if authed:
-            stats = indexer.last_stats
             result.update(
                 {
                     "vault": {"set_up": vault.is_set_up, "unlocked": vault.is_unlocked},
@@ -234,11 +241,13 @@ def create_app(config: Config) -> FastAPI:
                     "can_edit_folders": config.mode == "local",
                     "can_upload": True,
                     "max_upload_mb": config.max_upload_mb,
-                    "indexing": {
-                        "running": indexer.running,
-                        "progress": dict(indexer.progress),
-                        "last": stats.__dict__ if stats else None,
+                    "indexing": indexer.status(),
+                    "profiles": {
+                        k: {"label": p.label, "max_cpu": p.max_cpu, "max_ram_mb": p.max_ram_mb,
+                            "threads": p.extract_workers, "parallel_writes": p.write_parallel}
+                        for k, p in PROFILES.items()
                     },
+                    "cpu_count": CPU_COUNT,
                 }
             )
         return result
@@ -348,10 +357,22 @@ def create_app(config: Config) -> FastAPI:
         return {"ok": True}
 
     # ------------------------------------------------------------ files
-    @app.post("/api/reindex", dependencies=[Depends(require_auth)])
-    def reindex():
+    @app.post("/api/scan/start", dependencies=[Depends(require_auth)])
+    @app.post("/api/reindex", dependencies=[Depends(require_auth)])  # old name
+    def scan_start():
         indexer.trigger()
         return {"ok": True}
+
+    @app.post("/api/scan/stop", dependencies=[Depends(require_auth)])
+    def scan_stop():
+        return {"stopped": indexer.stop()}
+
+    @app.put("/api/scan/settings", dependencies=[Depends(require_auth)])
+    def scan_settings_update(data: ScanSettingsIn):
+        settings = ScanSettings.from_dict(data.model_dump())
+        db.set_meta("scan_settings", data.model_dump())
+        indexer.update_settings(settings)
+        return indexer.status()["settings"]
 
     @app.put("/api/folders", dependencies=[Depends(require_auth), Depends(require_local)])
     def set_folders(data: FoldersIn):

@@ -19,6 +19,11 @@ const ICONS = {
   trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/>',
   close: '<path d="M6 6l12 12M18 6 6 18"/>',
   edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/>',
+  palette: '<path d="M12 3a9 9 0 1 0 0 18c1.1 0 1.5-.8 1.5-1.6 0-1.2-1-1.6-1-2.6 0-.9.7-1.6 1.6-1.6H16a5 5 0 0 0 5-5c0-4-4-7.2-9-7.2z"/><circle cx="7.5" cy="11" r="1.2"/><circle cx="10.5" cy="7" r="1.2"/><circle cx="15" cy="7.5" r="1.2"/>',
+  layout: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M9 10h12"/>',
+  keyboard: '<rect x="2.5" y="6" width="19" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/>',
+  activity: '<path d="M3 12h4l3-8 4 16 3-8h4"/>',
+  reset: '<path d="M4 12a8 8 0 1 0 2.4-5.7L4 8.5"/><path d="M4 4v4.5h4.5"/>',
 };
 const icon = (name) => {
   const s = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -343,7 +348,7 @@ function openDetail() {
 
 function closeDetail() {
   $("#detail").classList.remove("open");
-  if (!$("#settings").classList.contains("open")) $("#scrim").classList.add("hidden");
+  if (!settingsOpen()) $("#scrim").classList.add("hidden");
 }
 
 const valueBox = (content, ...buttons) => el("div", { class: "valuebox" }, content, ...buttons);
@@ -481,12 +486,23 @@ function toggleAddMenu(open = $("#add-menu").classList.contains("hidden")) {
 }
 
 // --------------------------------------------------------------- settings
+const settingsOpen = () => !$("#settings").classList.contains("hidden");
+
 function setPref(key, value) {
   const before = { ...prefs };
   prefs = { ...prefs, [key]: value };
   savePrefs(prefs);
   applyPrefs(prefs);
   onPrefsChanged(before);
+}
+
+function applyPreset(next, message) {
+  const before = { ...prefs };
+  prefs = { ...next };
+  savePrefs(prefs);
+  applyPrefs(prefs);
+  onPrefsChanged(before);
+  toast(message);
 }
 
 function onPrefsChanged(before) {
@@ -500,7 +516,8 @@ function onPrefsChanged(before) {
     else $("#detail").replaceChildren();
   }
   if (!before || before.snippets !== prefs.snippets) renderResults();
-  if ($("#settings").classList.contains("open")) renderSettings();
+  renderStatusUI();
+  if (settingsOpen()) renderSettingsPage();
 }
 
 function segmented(options, current, onChange) {
@@ -518,16 +535,30 @@ function pref(title, desc, control, stack = false) {
     el("div", { class: "text" }, el("strong", {}, title), desc ? el("span", {}, desc) : null), control);
 }
 
-const section = (title, ...rows) => el("section", { class: "sheet-section" }, el("h3", {}, title), el("div", { class: "card" }, rows));
+const group = (title, rows, hint = null) => el("section", { class: "group" },
+  el("h3", {}, title), el("div", { class: "card" }, rows), hint ? el("p", { class: "hint" }, hint) : null);
 
 const ACCENTS = ["auto", "#0074e2", "#1a7f37", "#0f766e", "#7c3aed", "#d6336c", "#e8590c"];
 
-function renderSettings() {
-  const s = state.status;
+function fmtDuration(sec) {
+  if (sec == null) return "—";
+  sec = Math.round(sec);
+  if (sec < 60) return `${sec} วิ`;
+  const m = Math.floor(sec / 60), h = Math.floor(m / 60);
+  return h ? `${h} ชม. ${m % 60} นาที` : `${m} นาที ${sec % 60} วิ`;
+}
+function fmtAgo(ts) {
+  const sec = Math.max(0, Date.now() / 1000 - ts);
+  if (sec < 60) return "เมื่อสักครู่";
+  if (sec < 3600) return `${Math.floor(sec / 60)} นาทีที่แล้ว`;
+  if (sec < 86400) return `${Math.floor(sec / 3600)} ชั่วโมงที่แล้ว`;
+  return fmtDate(ts);
+}
+
+// ---- pages
+function pageAppearance() {
   const p = prefs;
   const seg = (key, options) => segmented(options, p[key], (v) => setPref(key, v));
-  const sw = (key, label) => toggle(p[key], (v) => setPref(key, v), label);
-
   const swatches = el("div", { class: "swatches" },
     ACCENTS.map((c) => el("button", {
       type: "button", class: `swatch${c === "auto" ? " auto" : ""}`, title: c === "auto" ? "อัตโนมัติ (ดำ/ขาวตามธีม)" : c,
@@ -535,110 +566,266 @@ function renderSettings() {
     })),
     el("input", { type: "color", class: "swatch-custom", title: "เลือกสีเอง", value: p.accent === "auto" ? "#262626" : p.accent,
       oninput: (e) => setPref("accent", e.target.value) }));
-
-  const idx = s.indexing.last;
-  const filesCard = [
-    el("div", { class: "stats", style: "margin:10px 0" },
-      el("div", {}, el("strong", {}, s.counts.file.toLocaleString()), el("span", {}, "ไฟล์ในดัชนี")),
-      el("div", {}, el("strong", {}, s.indexing.running ? "กำลังสแกน" : idx ? `${idx.seconds}s` : "—"), el("span", {}, "สแกนล่าสุด")),
-      el("div", {}, el("strong", {}, s.mode === "local" ? "Local" : "Server"), el("span", {}, "โหมด"))),
+  return [
+    group("สีและธีม", [
+      pref("ธีม", "ตามระบบ = เปลี่ยนสว่าง/มืดตามเครื่อง", seg("theme", [["system", "ตามระบบ"], ["light", "สว่าง"], ["dark", "มืด"]])),
+      pref("สีหลัก", "ใช้กับปุ่มหลัก รายการที่เลือก และแถบความคืบหน้า", swatches, true),
+    ]),
+    group("ตัวอักษรและรูปทรง", [
+      pref("ขนาดตัวอักษร", null, seg("fontSize", [["sm", "เล็ก"], ["md", "ปกติ"], ["lg", "ใหญ่"]])),
+      pref("ฟอนต์", null, seg("font", [["google", "Google Sans"], ["system", "ฟอนต์ระบบ"]])),
+      pref("มุม", null, seg("radius", [["square", "เหลี่ยม"], ["rounded", "ปกติ"], ["round", "มน"]])),
+      pref("ความหนาแน่น", "กระชับ = เห็นผลลัพธ์ได้มากขึ้นต่อหน้าจอ", seg("density", [["comfortable", "สบายตา"], ["compact", "กระชับ"]])),
+      pref("ภาพเคลื่อนไหว", "ปิดถ้าต้องการให้หน้าจอนิ่งหรือเครื่องช้า", toggle(p.motion, (v) => setPref("motion", v), "ภาพเคลื่อนไหว")),
+    ]),
   ];
+}
+
+function pageDisplay() {
+  const p = prefs;
+  const seg = (key, options) => segmented(options, p[key], (v) => setPref(key, v));
+  const sw = (key, label) => toggle(p[key], (v) => setPref(key, v), label);
+  return [
+    group("โครงหน้า", [
+      pref("รูปแบบหน้า", "มีกรอบ = การ์ดแบบ fastwork · เรียบ = คอลัมน์เดียว", seg("layout", [["framed", "มีกรอบ"], ["clean", "เรียบ"]])),
+      pref("ตัวกรองประเภท", "ทั้งหมด / ไฟล์ / โน้ต / ลิงก์ / รหัสผ่าน", seg("filters", [["rail", "เมนูซ้าย"], ["tabs", "แท็บ"], ["hidden", "ซ่อน"]])),
+      pref("รายละเอียด", "ด้านข้าง = แสดงตลอดบนจอกว้าง · จอแคบจะเปิดเมื่อคลิกเสมอ", seg("detail", [["side", "ด้านข้าง"], ["drawer", "เปิดเมื่อคลิก"]])),
+    ]),
+    group("ผลลัพธ์", [
+      pref("ไอคอนประเภท", null, seg("icons", [["large", "ใหญ่"], ["small", "เล็ก"], ["none", "ซ่อน"]])),
+      pref("ข้อความตัวอย่าง", "ส่วนของเนื้อหาที่ตรงกับคำค้น", sw("snippets", "ข้อความตัวอย่าง")),
+      pref("รายการล่าสุด", "แสดงรายการล่าสุดก่อนเริ่มพิมพ์", sw("recent", "รายการล่าสุด")),
+    ]),
+    group("แถบและปุ่มเสริม", [
+      pref("แถบสถานะการสแกน", "มุมซ้ายล่างระหว่างสแกน พร้อมปุ่มหยุด", sw("scanIndicator", "แถบสถานะการสแกน")),
+      pref("แถบคีย์ลัดและสถานะ", "ด้านล่างของหน้า", sw("footer", "แถบคีย์ลัดและสถานะ")),
+      pref("ปุ่มตู้รหัสผ่าน", "ปุ่มล็อก/ปลดล็อกข้างช่องค้นหา", sw("vaultButton", "ปุ่มตู้รหัสผ่าน")),
+    ]),
+  ];
+}
+
+function pageBehavior() {
+  const p = prefs;
+  return [
+    group("การค้นหา", [
+      pref("กด Enter", "Shift+Enter ทำอีกแบบ", segmented([["open", "เปิดทันที"], ["details", "ดูรายละเอียด"]], p.enterAction, (v) => setPref("enterAction", v))),
+      pref("จำนวนผลลัพธ์สูงสุด", null, segmented([[20, "20"], [50, "50"], [100, "100"]], p.resultLimit, (v) => setPref("resultLimit", v))),
+    ]),
+    group("คีย์ลัด", [
+      pref("ไปที่ช่องค้นหา", null, el("span", {}, el("kbd", {}, "/"), " หรือ ", el("kbd", {}, "Ctrl"), "+", el("kbd", {}, "K"))),
+      pref("เลือกผลลัพธ์", null, el("span", {}, el("kbd", {}, "↑"), " ", el("kbd", {}, "↓"))),
+      pref("ปิดหน้าต่าง / ล้างคำค้น", null, el("kbd", {}, "Esc")),
+    ]),
+  ];
+}
+
+const PROFILE_NOTES = {
+  eco: "เหมาะกับโน้ตบุ๊กหรือเครื่องสเปกต่ำ ทำงานอื่นได้ลื่น แต่สแกนช้าที่สุด",
+  balanced: "ค่าเริ่มต้น สแกนเร็วพอสมควรโดยไม่แย่งเครื่องมาก",
+  fast: "สแกนเร็วที่สุด เครื่องอาจหน่วงระหว่างสแกน",
+};
+
+async function saveScanSettings(patch) {
+  const current = state.status.indexing.settings;
+  try {
+    await api("/api/scan/settings", { method: "PUT", body: { ...current, ...patch } });
+    await refreshStatus();
+    renderSettingsPage();
+  } catch (e) { toast(e.message); }
+}
+
+async function startScan() {
+  await api("/api/scan/start", { method: "POST" });
+  toast("เริ่มสแกนแล้ว");
+  setTimeout(refreshStatus, 300);
+}
+
+async function stopScan() {
+  const r = await api("/api/scan/stop", { method: "POST" });
+  toast(r.stopped ? "กำลังหยุดสแกน…" : "ไม่มีการสแกนที่กำลังทำงาน");
+  refreshStatus();
+}
+
+/** The live status card; refreshed in place while Settings is open. */
+function fillScanCard(card) {
+  const ix = state.status.indexing;
+  const pr = ix.progress || {};
+  const last = ix.last;
+  const parts = [];
+  if (ix.running) {
+    const total = pr.total || 0;
+    const pct = total ? Math.floor((pr.done / total) * 100) : null;
+    const title = pr.phase === "stopping" ? "กำลังหยุด…" : pr.phase === "walking" ? "กำลังสำรวจโฟลเดอร์…" : "กำลังสแกนไฟล์";
+    const sub = pr.phase === "walking" ? `พบแล้ว ${Number(pr.scanned || 0).toLocaleString()} ไฟล์`
+      : total ? `${pr.done.toLocaleString()} / ${total.toLocaleString()} ไฟล์ที่ต้องอ่าน · ${pct}%` : "";
+    parts.push(el("div", { class: "scan-top" },
+      el("div", { class: "state" }, el("strong", {}, el("span", { class: `dot-live ${pr.throttled ? "warn" : "on"}` }), title), el("span", {}, sub)),
+      btn("หยุดสแกน", stopScan, "danger", null, pr.phase === "stopping" ? { disabled: "" } : {})));
+    parts.push(el("div", { class: `progress${pct == null ? " indeterminate" : ""}` }, el("span", { style: pct == null ? "" : `width:${pct}%` })));
+    parts.push(el("div", { class: "stats" },
+      el("div", {}, el("strong", {}, pr.rate ? `${pr.rate} ไฟล์/วิ` : "—"), el("span", {}, "ความเร็ว")),
+      el("div", {}, el("strong", {}, fmtDuration(pr.eta_seconds)), el("span", {}, "เหลืออีกประมาณ")),
+      el("div", {}, el("strong", {}, pr.cpu != null ? `${pr.cpu}%` : "—"), el("span", {}, "CPU ที่แอปใช้")),
+      el("div", {}, el("strong", {}, pr.ram_mb != null ? `${pr.ram_mb} MB` : "—"), el("span", {}, "RAM ที่แอปใช้"))));
+    if (pr.current) parts.push(el("div", { class: "current" }, `กำลังอ่าน: ${pr.current}`));
+    if (pr.throttled) parts.push(el("div", { class: "notice" }, `พักชั่วคราวเพื่อไม่ให้เครื่องหน่วง — ${pr.throttled}`));
+  } else {
+    const sub = last ? `สแกนล่าสุด ${fmtAgo(last.finished_at)} · ${last.scanned.toLocaleString()} ไฟล์ · อ่านใหม่ ${last.added_or_updated.toLocaleString()} · ใช้เวลา ${fmtDuration(last.seconds)}`
+      : "ยังไม่เคยสแกน";
+    const auto = ix.settings.auto ? `สแกนอัตโนมัติทุก ${ix.settings.interval_minutes} นาที` : "ปิดการสแกนอัตโนมัติอยู่";
+    parts.push(el("div", { class: "scan-top" },
+      el("div", { class: "state" }, el("strong", {}, el("span", { class: "dot-live" }), "ไม่ได้สแกนอยู่"), el("span", {}, sub), el("span", {}, auto)),
+      btn("เริ่มสแกน", startScan, "primary")));
+    if (last && last.stopped) parts.push(el("div", { class: "notice info" }, "การสแกนครั้งล่าสุดถูกหยุดก่อนเสร็จ กด \"เริ่มสแกน\" เพื่อทำต่อ (ไฟล์ที่สแกนแล้วจะไม่อ่านซ้ำ)"));
+    if (last && last.paused_seconds >= 1) parts.push(el("div", { class: "notice info" }, `ครั้งล่าสุดพักไปรวม ${fmtDuration(last.paused_seconds)} เพื่อไม่ให้ใช้ CPU/RAM เกินขีดจำกัด`));
+  }
+  card.replaceChildren(...parts);
+}
+
+function pageScanning() {
+  const s = state.status;
+  const ix = s.indexing;
+  const card = el("div", { class: "scan-card", id: "scan-card" });
+  fillScanCard(card);
+
+  const profiles = el("div", { class: "choice-grid" }, Object.entries(s.profiles).map(([key, p]) =>
+    el("button", { type: "button", class: "choice", "aria-pressed": String(ix.settings.profile === key), onclick: () => saveScanSettings({ profile: key }) },
+      el("strong", {}, p.label), el("span", {}, PROFILE_NOTES[key]),
+      el("span", {}, `CPU ไม่เกิน ${p.max_cpu}% · RAM ไม่เกิน ${p.max_ram_mb} MB · ${p.threads} เธรดอ่านไฟล์`))));
+
+  const folderRows = [];
   if (s.can_edit_folders) {
     const ta = el("textarea", { placeholder: "/home/me/Documents\nD:\\Work", style: "min-height:96px" }, s.folders.join("\n"));
     const err = el("p", { class: "error" });
-    filesCard.push(pref("โฟลเดอร์ที่ให้ค้นหา", "บรรทัดละโฟลเดอร์ (ไฟล์ที่อัปโหลดค้นได้เสมอ)", el("div", { style: "display:grid;gap:8px" },
+    folderRows.push(pref("โฟลเดอร์ที่ให้ค้นหา", "บรรทัดละโฟลเดอร์ · ไฟล์ที่อัปโหลดค้นได้เสมอ", el("div", { style: "display:grid;gap:8px" },
       el("div", { class: "input" }, ta), err,
-      el("div", { class: "sheet-foot" },
-        btn("บันทึกโฟลเดอร์", async () => {
-          try {
-            await api("/api/folders", { method: "PUT", body: { folders: ta.value.split("\n") } });
-            toast("บันทึกแล้ว กำลังสแกน…"); pollIndexing();
-          } catch (e) { err.textContent = e.message; }
-        }, "primary sm"),
-        btn("สแกนไฟล์ใหม่", async () => { await api("/api/reindex", { method: "POST" }); toast("กำลังสแกนใหม่…"); pollIndexing(); }, "secondary sm"))), true));
+      el("div", { class: "btn-row" }, btn("บันทึกและสแกน", async () => {
+        try {
+          await api("/api/folders", { method: "PUT", body: { folders: ta.value.split("\n") } });
+          toast("บันทึกแล้ว กำลังสแกน…"); refreshStatus();
+        } catch (e) { err.textContent = e.message; }
+      }, "primary sm"))), true));
   } else {
-    filesCard.push(pref("โฟลเดอร์ที่ค้นหา", "ตั้งค่าตอนรันเซิร์ฟเวอร์ (--folder)",
+    folderRows.push(pref("โฟลเดอร์ที่ค้นหา", "ตั้งค่าตอนรันเซิร์ฟเวอร์ (--folder) · ไฟล์ที่อัปโหลดค้นได้เสมอ",
       el("ul", { class: "chips" }, s.folders.length ? s.folders.map((f) => el("li", { class: "chip" }, f)) : el("li", { class: "chip" }, "—")), true));
-    filesCard.push(pref("สแกนไฟล์ใหม่", "ปกติระบบสแกนเองทุก 5 นาที",
-      btn("สแกนเลย", async () => { await api("/api/reindex", { method: "POST" }); toast("กำลังสแกนใหม่…"); pollIndexing(); }, "secondary sm")));
   }
 
-  const vault = s.vault;
-  const sheet = $("#settings");
-  sheet.replaceChildren(
-    el("div", { class: "sheet-head" }, el("h2", {}, "ตั้งค่า"),
-      btn("", closeSettings, "ghost icon-only sm", "close", { title: "ปิด", "aria-label": "ปิด" })),
-    el("div", { class: "sheet-body" },
-      section("หน้าตา",
-        pref("ธีม", null, seg("theme", [["system", "ตามระบบ"], ["light", "สว่าง"], ["dark", "มืด"]])),
-        pref("สีหลัก", "ปุ่มหลัก จุดที่เลือก และไฮไลต์", swatches, true),
-        pref("ขนาดตัวอักษร", null, seg("fontSize", [["sm", "เล็ก"], ["md", "ปกติ"], ["lg", "ใหญ่"]])),
-        pref("มุม", null, seg("radius", [["square", "เหลี่ยม"], ["rounded", "ปกติ"], ["round", "มน"]])),
-        pref("ความหนาแน่น", "กระชับ = เห็นผลลัพธ์ได้มากขึ้นต่อหน้าจอ", seg("density", [["comfortable", "สบายตา"], ["compact", "กระชับ"]])),
-        pref("ฟอนต์", null, seg("font", [["google", "Google Sans"], ["system", "ฟอนต์ระบบ"]])),
-        pref("ภาพเคลื่อนไหว", null, sw("motion", "ภาพเคลื่อนไหว"))),
-      section("สิ่งที่แสดงบนหน้าจอ",
-        pref("รูปแบบหน้า", "มีกรอบ = สไตล์การ์ดแบบ fastwork", seg("layout", [["clean", "เรียบ"], ["framed", "มีกรอบ"]])),
-        pref("ตัวกรองประเภท", "ทั้งหมด / ไฟล์ / โน้ต / ลิงก์ / รหัสผ่าน", seg("filters", [["hidden", "ซ่อน"], ["tabs", "แท็บ"], ["rail", "เมนูซ้าย"]])),
-        pref("รายละเอียด", "ด้านข้าง = แสดงตลอดบนจอกว้าง", seg("detail", [["drawer", "เปิดเมื่อคลิก"], ["side", "ด้านข้าง"]])),
-        pref("ไอคอนประเภท", null, seg("icons", [["none", "ซ่อน"], ["small", "เล็ก"], ["large", "ใหญ่"]])),
-        pref("ข้อความตัวอย่าง", "ส่วนของเนื้อหาที่ตรงกับคำค้น", sw("snippets", "ข้อความตัวอย่าง")),
-        pref("รายการล่าสุด", "แสดงรายการล่าสุดก่อนเริ่มพิมพ์", sw("recent", "รายการล่าสุด")),
-        pref("แถบคีย์ลัดและสถานะ", "ด้านล่างของหน้า", sw("footer", "แถบคีย์ลัดและสถานะ")),
-        pref("ปุ่มตู้รหัสผ่าน", "ปุ่มล็อก/ปลดล็อกข้างช่องค้นหา", sw("vaultButton", "ปุ่มตู้รหัสผ่าน"))),
-      section("การใช้งาน",
-        pref("กด Enter", "Shift+Enter ทำอีกแบบ", seg("enterAction", [["open", "เปิดทันที"], ["details", "ดูรายละเอียด"]])),
-        pref("จำนวนผลลัพธ์", null, seg("resultLimit", [[20, "20"], [50, "50"], [100, "100"]]))),
-      section("ไฟล์และโฟลเดอร์", ...filesCard),
-      section("ตู้รหัสผ่าน",
-        pref(vault.unlocked ? "ปลดล็อกอยู่" : vault.set_up ? "ล็อกอยู่" : "ยังไม่ได้ตั้ง Master Password",
-          vault.unlocked ? "ล็อกเองอัตโนมัติเมื่อไม่ได้ใช้ 15 นาที" : "ปลดล็อกเพื่อดูหรือคัดลอกรหัสผ่าน",
-          btn(vault.unlocked ? "ล็อก" : vault.set_up ? "ปลดล็อก" : "ตั้งค่า", async () => { await toggleVault(); renderSettings(); },
-            vault.unlocked ? "secondary sm" : "primary sm", vault.unlocked ? "lock" : "unlock"))),
-      s.mode === "server" ? section("บัญชี",
-        pref("ออกจากระบบ", null, btn("ออกจากระบบ", async () => { await api("/api/logout", { method: "POST" }); closeSettings(); showLogin(); }, "danger sm"))) : null,
-      el("div", { class: "sheet-foot" },
-        btn("คืนค่าหน้าตาเริ่มต้น", () => {
-          const before = { ...prefs };
-          prefs = { ...DEFAULT_PREFS };
-          savePrefs(prefs); applyPrefs(prefs); onPrefsChanged(before); toast("คืนค่าเริ่มต้นแล้ว");
-        }, "ghost sm"),
-        el("span", { class: "secondary", style: "font-size:12px;align-self:center" }, "การตั้งค่าหน้าตาบันทึกไว้ใน browser นี้"))));
+  return [
+    el("section", { class: "group" }, el("h3", {}, "สถานะ"), card),
+    el("section", { class: "group" }, el("h3", {}, "การใช้ทรัพยากร (กันเครื่องค้าง)"), profiles,
+      el("p", { class: "hint" }, `ระหว่างสแกน ระบบจะวัด CPU และ RAM ทุกครึ่งวินาที ถ้าเกินขีดจำกัด หรือ RAM ว่างของเครื่องเหลือน้อย จะพักชั่วคราวเอง (เครื่องนี้มี ${s.cpu_count} คอร์)`)),
+    group("สแกนอัตโนมัติ", [
+      pref("สแกนอัตโนมัติ", "ตรวจหาไฟล์ใหม่/ที่แก้ไขเป็นระยะ (อ่านเฉพาะไฟล์ที่เปลี่ยน)",
+        toggle(ix.settings.auto, (v) => saveScanSettings({ auto: v }), "สแกนอัตโนมัติ")),
+      pref("ทุกๆ", null, segmented([[5, "5 นาที"], [15, "15 นาที"], [30, "30 นาที"], [60, "1 ชม."]], ix.settings.interval_minutes,
+        (v) => saveScanSettings({ interval_minutes: v }))),
+    ]),
+    group("โฟลเดอร์", folderRows, "การตั้งค่าในหมวดนี้เก็บไว้ที่เครื่องที่รันแอป ใช้ร่วมกันทุก browser"),
+  ];
 }
 
-async function openSettings() {
+function pageSecurity() {
+  const s = state.status;
+  const vault = s.vault;
+  const rows = [
+    pref(vault.unlocked ? "ตู้รหัสผ่าน: ปลดล็อกอยู่" : vault.set_up ? "ตู้รหัสผ่าน: ล็อกอยู่" : "ยังไม่ได้ตั้ง Master Password",
+      vault.unlocked ? "ล็อกเองอัตโนมัติเมื่อไม่ได้ใช้ 15 นาที" : "ปลดล็อกเพื่อดูหรือคัดลอกรหัสผ่าน",
+      btn(vault.unlocked ? "ล็อก" : vault.set_up ? "ปลดล็อก" : "ตั้งค่า", async () => { await toggleVault(); renderSettingsPage(); },
+        vault.unlocked ? "secondary sm" : "primary sm", vault.unlocked ? "lock" : "unlock")),
+  ];
+  const out = [group("ตู้รหัสผ่าน", rows, "ถ้าลืม master password จะกู้รหัสผ่านที่เก็บไว้ไม่ได้")];
+  if (s.mode === "server") {
+    out.push(group("บัญชี", [pref("ออกจากระบบ", "ออกจากระบบใน browser นี้",
+      btn("ออกจากระบบ", async () => { await api("/api/logout", { method: "POST" }); closeSettings(); showLogin(); }, "danger sm"))]));
+  }
+  return out;
+}
+
+function pageReset() {
+  const same = (preset) => Object.keys(DEFAULT_PREFS).every((k) => prefs[k] === preset[k]);
+  return [
+    el("section", { class: "group" }, el("h3", {}, "ชุดการตั้งค่าสำเร็จรูป"),
+      el("div", { class: "choice-grid" },
+        el("button", { type: "button", class: "choice", "aria-pressed": String(same(PREF_PRESETS.full)),
+          onclick: () => applyPreset(PREF_PRESETS.full, "ใช้ค่าเริ่มต้นแล้ว") },
+          el("strong", {}, "แสดงครบ (ค่าเริ่มต้น)"), el("span", {}, "เมนูประเภทด้านซ้าย รายละเอียดด้านข้าง แถบสถานะ และปุ่มทั้งหมด")),
+        el("button", { type: "button", class: "choice", "aria-pressed": String(same(PREF_PRESETS.minimal)),
+          onclick: () => applyPreset(PREF_PRESETS.minimal, "ใช้แบบเรียบแล้ว") },
+          el("strong", {}, "เรียบ"), el("span", {}, "มีแค่ช่องค้นหา ปุ่มเพิ่ม และผลลัพธ์ รายละเอียดเปิดเมื่อคลิก")))),
+    group("คืนค่า", [
+      pref("คืนค่าหน้าตาเริ่มต้น", "ล้างทุกอย่างในหมวด หน้าตา / การแสดงผล / การใช้งาน กลับเป็นค่าเริ่มต้น",
+        btn("คืนค่าเริ่มต้น", () => applyPreset(DEFAULT_PREFS, "คืนค่าเริ่มต้นแล้ว"), "danger sm")),
+    ], "การตั้งค่าหน้าตาบันทึกไว้ใน browser นี้ ไม่กระทบโฟลเดอร์ ไฟล์ โน้ต หรือรหัสผ่าน"),
+  ];
+}
+
+const SETTINGS_PAGES = [
+  { key: "appearance", label: "หน้าตา", icon: "palette", desc: "ธีม สี ตัวอักษร และรูปทรงของหน้าจอ", render: pageAppearance },
+  { key: "display", label: "การแสดงผล", icon: "layout", desc: "เลือกว่าจะแสดงอะไรบนหน้าจอ ปิดส่วนที่ไม่ใช้ได้", render: pageDisplay },
+  { key: "behavior", label: "การใช้งาน", icon: "keyboard", desc: "ปุ่ม Enter คีย์ลัด และจำนวนผลลัพธ์", render: pageBehavior },
+  { key: "scanning", label: "การสแกนไฟล์", icon: "activity", desc: "สถานะ หยุด/เริ่มสแกน จำกัด CPU/RAM และโฟลเดอร์", render: pageScanning },
+  { key: "security", label: "ความปลอดภัย", icon: "lock", desc: "ตู้รหัสผ่านและบัญชี", render: pageSecurity },
+  { key: "reset", label: "รีเซ็ต", icon: "reset", desc: "คืนค่าหน้าตาเริ่มต้น หรือเลือกชุดการตั้งค่าสำเร็จรูป", render: pageReset },
+];
+let settingsPage = "appearance";
+
+function renderSettingsNav() {
+  const nav = document.querySelector(".settings-nav");
+  nav.replaceChildren(el("div", { class: "nav-title" }, "ตั้งค่า"),
+    ...SETTINGS_PAGES.map((pg) => el("button", {
+      type: "button", class: "nav-item", "data-page": pg.key, "aria-current": pg.key === settingsPage ? "page" : null,
+      onclick: () => { settingsPage = pg.key; renderSettingsNav(); renderSettingsPage(); $("#settings-body").scrollTop = 0; },
+    }, icon(pg.icon), pg.label,
+      pg.key === "scanning" && state.status?.indexing?.running ? el("span", { class: "badge", title: "กำลังสแกน" }) : null)));
+}
+
+function renderSettingsPage() {
+  const pg = SETTINGS_PAGES.find((p) => p.key === settingsPage);
+  $("#settings-title").textContent = pg.label;
+  $("#settings-desc").textContent = pg.desc;
+  const body = $("#settings-body");
+  const scroll = body.scrollTop;
+  body.replaceChildren(...pg.render());
+  body.scrollTop = scroll;
+}
+
+async function openSettings(page) {
+  if (typeof page === "string") settingsPage = page;
   await refreshStatus();
   closeDetail();
-  renderSettings();
-  const sheet = $("#settings");
-  sheet.classList.remove("hidden");
-  requestAnimationFrame(() => sheet.classList.add("open"));
+  renderSettingsNav();
+  renderSettingsPage();
+  $("#settings").classList.remove("hidden");
   $("#scrim").classList.remove("hidden");
+  document.querySelector(`.nav-item[data-page="${settingsPage}"]`)?.focus();
 }
 
 function closeSettings() {
-  const sheet = $("#settings");
-  sheet.classList.remove("open");
-  setTimeout(() => { if (!sheet.classList.contains("open")) sheet.classList.add("hidden"); }, 450);
+  $("#settings").classList.add("hidden");
   if (!$("#detail").classList.contains("open")) $("#scrim").classList.add("hidden");
   $("#q").focus();
 }
 
-async function pollIndexing() {
-  for (let i = 0; i < 600; i++) {
-    await new Promise((r) => setTimeout(r, 1000));
-    await refreshStatus();
-    if ($("#settings").classList.contains("open")) renderSettings();
-    if (!state.status.indexing.running) break;
-  }
-  search();
-}
-
 // ----------------------------------------------------------------- status
+let statusTimer = null;
+let wasRunning = false;
+
 async function refreshStatus() {
   state.status = await api("/api/status");
+  renderStatusUI();
+  scheduleStatus();
+}
+
+/** Poll quickly while a scan runs (live progress), slowly otherwise. */
+function scheduleStatus() {
+  clearTimeout(statusTimer);
+  if (!state.status?.authenticated) return;
+  statusTimer = setTimeout(() => refreshStatus().catch(() => scheduleStatus()), state.status.indexing.running ? 1000 : 8000);
+}
+
+function renderStatusUI() {
   const s = state.status;
-  if (!s.authenticated) return;
+  if (!s || !s.authenticated) return;
   const total = Object.values(s.counts).reduce((a, b) => a + b, 0);
   for (const item of document.querySelectorAll("#filters [data-kind]")) {
     const k = item.dataset.kind;
@@ -647,9 +834,36 @@ async function refreshStatus() {
   const vb = $("#vault-btn");
   vb.replaceChildren(icon(s.vault.unlocked ? "unlock" : "lock"));
   vb.title = s.vault.unlocked ? "ล็อกตู้รหัสผ่าน" : "ปลดล็อกตู้รหัสผ่าน";
-  const pr = s.indexing.progress || {};
-  $("#status-line").textContent = !s.indexing.running ? `${s.mode === "local" ? "Local" : "Server"} · ${total.toLocaleString()} รายการ`
-    : pr.phase === "indexing" ? `กำลังสแกนไฟล์ ${pr.done.toLocaleString()} / ${pr.total.toLocaleString()}` : "กำลังสำรวจโฟลเดอร์…";
+
+  const ix = s.indexing;
+  const pr = ix.progress || {};
+  const pct = pr.total ? Math.floor((pr.done / pr.total) * 100) : null;
+  const scanText = pr.phase === "stopping" ? "กำลังหยุดสแกน…"
+    : pr.phase === "walking" ? `กำลังสำรวจโฟลเดอร์… ${Number(pr.scanned || 0).toLocaleString()} ไฟล์`
+    : pr.total ? `กำลังสแกน ${pr.done.toLocaleString()} / ${pr.total.toLocaleString()} (${pct}%)` : "กำลังสแกน…";
+  $("#status-line").textContent = ix.running ? `${scanText}${pr.throttled ? " · พักชั่วคราว" : ""}`
+    : `${s.mode === "local" ? "Local" : "Server"} · ${total.toLocaleString()} รายการ`;
+
+  const pill = $("#scan-pill");
+  pill.classList.toggle("hidden", !ix.running);
+  pill.classList.toggle("throttled", !!pr.throttled);
+  if (ix.running) {
+    pill.querySelector(".pill-text").textContent = pr.throttled ? `${scanText} · พักชั่วคราว` : scanText;
+    pill.querySelector(".bar > span").style.width = pct == null ? "8%" : `${pct}%`;
+  }
+
+  if (settingsOpen()) {
+    const card = $("#scan-card");
+    if (card) fillScanCard(card);
+    const badge = document.querySelector('.nav-item[data-page="scanning"] .badge');
+    if (!!badge !== ix.running) renderSettingsNav();
+  }
+  if (wasRunning && !ix.running) {
+    const last = ix.last;
+    toast(last && last.stopped ? "หยุดสแกนแล้ว" : "สแกนเสร็จแล้ว");
+    search();
+  }
+  wasRunning = ix.running;
 }
 
 function showLogin() {
@@ -763,7 +977,7 @@ document.addEventListener("keydown", (e) => {
   if ($("#modal").open) return;
   if (e.key === "Escape") {
     if (!$("#add-menu").classList.contains("hidden")) { toggleAddMenu(false); $("#add-btn").focus(); return; }
-    if ($("#settings").classList.contains("open")) { closeSettings(); return; }
+    if (settingsOpen()) { closeSettings(); return; }
     if ($("#detail").classList.contains("open")) { closeDetail(); $("#q").focus(); return; }
     if (document.activeElement === $("#q") && $("#q").value) { $("#q").value = ""; search(); }
     return;
@@ -784,7 +998,12 @@ document.addEventListener("click", (e) => {
   if (!e.target.closest(".add-wrap") && !$("#add-menu").classList.contains("hidden")) toggleAddMenu(false);
 });
 $("#scrim").addEventListener("click", () => { closeSettings(); closeDetail(); });
-$("#settings-btn").addEventListener("click", openSettings);
+$("#settings-btn").addEventListener("click", () => openSettings());
+$("#settings-close").addEventListener("click", closeSettings);
+// Click outside the settings window closes it.
+$("#settings").addEventListener("click", (e) => { if (e.target === $("#settings")) closeSettings(); });
+$("#scan-pill-open").addEventListener("click", () => openSettings("scanning"));
+$("#scan-pill-stop").addEventListener("click", stopScan);
 $("#vault-btn").addEventListener("click", toggleVault);
 
 // Side ↔ drawer depends on window width.

@@ -43,8 +43,8 @@ PRAGMAS = (
     "PRAGMA journal_mode=WAL",
     "PRAGMA synchronous=NORMAL",
     "PRAGMA temp_store=MEMORY",
-    "PRAGMA cache_size=-32768",
-    "PRAGMA mmap_size=268435456",
+    "PRAGMA cache_size=-16384",  # 16 MB per connection
+    "PRAGMA mmap_size=0",  # keep memory use predictable (the scan brake watches RSS)
 )
 
 ITEMS_SCHEMA = """

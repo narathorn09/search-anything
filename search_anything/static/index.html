@@ -74,7 +74,35 @@
   </section>
 
   <div id="scrim" class="hidden"></div>
-  <aside id="settings" class="sheet hidden" aria-label="ตั้งค่า"></aside>
+  <!-- Settings: categories on the left, the chosen category on the right -->
+  <div id="settings" class="settings hidden" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+    <div class="settings-window">
+      <nav class="settings-nav" aria-label="หมวดการตั้งค่า"></nav>
+      <div class="settings-main">
+        <header class="settings-head">
+          <div>
+            <h2 id="settings-title"></h2>
+            <p id="settings-desc" class="secondary"></p>
+          </div>
+          <button type="button" class="btn ghost icon-only sm" id="settings-close" title="ปิด" aria-label="ปิด">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+          </button>
+        </header>
+        <div class="settings-body" id="settings-body"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scan progress (Settings → การแสดงผล → แถบสถานะการสแกน) -->
+  <div id="scan-pill" class="hidden" role="status">
+    <button type="button" class="pill-main" id="scan-pill-open" title="ดูสถานะการสแกน">
+      <span class="pill-text"></span>
+      <span class="bar"><span></span></span>
+    </button>
+    <button type="button" class="btn ghost icon-only sm" id="scan-pill-stop" title="หยุดสแกน" aria-label="หยุดสแกน">
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="1.5"/></svg>
+    </button>
+  </div>
 
   <dialog id="modal"><form method="dialog" id="modal-form" class="panel"></form></dialog>
   <div id="toast" class="hidden"></div>

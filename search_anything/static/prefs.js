@@ -3,10 +3,13 @@
  * UI preferences. Loaded in <head> (before the page paints) so the chosen
  * theme/layout applies without a flash. Stored per browser in localStorage.
  *
- * Defaults are deliberately minimal: search, add, results. Everything else is
- * opt-in from Settings.
+ * Defaults show (almost) everything; users switch off what they don't want
+ * in Settings, or pick the "minimal" preset.
  */
 const PREFS_KEY = "sa-prefs";
+// Bump when defaults change in a way that should replace values saved by an
+// older version (v2: everything visible by default instead of minimal).
+const PREFS_VERSION = 2;
 const DEFAULT_PREFS = Object.freeze({
   // appearance
   theme: "system",        // system | light | dark
@@ -17,23 +20,34 @@ const DEFAULT_PREFS = Object.freeze({
   font: "google",         // google | system
   motion: true,
   // what is shown
-  layout: "clean",        // clean (single column) | framed (bordered panel)
-  filters: "hidden",      // hidden | tabs | rail
-  detail: "drawer",       // drawer (opens on click) | side (always visible)
-  icons: "small",         // large | small | none
+  layout: "framed",       // clean (single column) | framed (bordered panel)
+  filters: "rail",        // hidden | tabs | rail
+  detail: "side",         // drawer (opens on click) | side (always visible on wide screens)
+  icons: "large",         // large | small | none
   snippets: true,         // text excerpt under results while searching
   recent: true,           // show recent items before typing
-  footer: false,          // shortcuts + status bar
-  vaultButton: false,     // lock/unlock button next to search
+  footer: true,           // shortcuts + status bar
+  vaultButton: true,      // lock/unlock button next to search
+  scanIndicator: true,    // floating scan progress with a stop button
   // behaviour
   enterAction: "open",    // open (open file/link, copy password) | details
   resultLimit: 50,
+});
+
+// One-click presets (Settings → รีเซ็ต).
+const PREF_PRESETS = Object.freeze({
+  full: DEFAULT_PREFS,
+  minimal: Object.freeze({
+    ...DEFAULT_PREFS, layout: "clean", filters: "hidden", detail: "drawer", icons: "small",
+    footer: false, vaultButton: false, scanIndicator: true,
+  }),
 });
 
 function loadPrefs() {
   try {
     const saved = JSON.parse(localStorage.getItem(PREFS_KEY) || "{}");
     const prefs = { ...DEFAULT_PREFS };
+    if ((saved.v || 1) < PREFS_VERSION) return prefs; // saved by an older version
     for (const key of Object.keys(DEFAULT_PREFS)) {
       if (key in saved && typeof saved[key] === typeof DEFAULT_PREFS[key]) prefs[key] = saved[key];
     }
@@ -44,7 +58,7 @@ function loadPrefs() {
 }
 
 function savePrefs(prefs) {
-  try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch { /* private mode */ }
+  try { localStorage.setItem(PREFS_KEY, JSON.stringify({ ...prefs, v: PREFS_VERSION })); } catch { /* private mode */ }
 }
 
 /** Readable text colour (black/white) for a background hex colour. */
@@ -64,7 +78,7 @@ function applyPrefs(prefs) {
   for (const key of ["theme", "fontSize", "radius", "density", "font", "layout", "filters", "detail", "icons"]) {
     root.dataset[key] = prefs[key];
   }
-  for (const key of ["motion", "snippets", "recent", "footer", "vaultButton"]) {
+  for (const key of ["motion", "snippets", "recent", "footer", "vaultButton", "scanIndicator"]) {
     root.dataset[key] = prefs[key] ? "on" : "off";
   }
   // A side column only fits on wide screens; otherwise details open as a drawer.
