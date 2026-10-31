@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
-from fastapi import Depends, FastAPI, HTTPException, Request, UploadFile
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -22,7 +22,8 @@ from starlette.middleware.sessions import SessionMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .db import Database
-from .extractors import MAX_TEXT_CHARS, SUPPORTED, decode, is_plain_text_type
+from .extractors import MAX_TEXT_CHARS, SUPPORTED, is_plain_text_type
+from .textview import LineIndex, LineIndexCache
 from .indexer import Indexer, ScanSettings
 from .worker import ProcessIndexer
 from .resources import CONTAINER, CPU_COUNT, PROFILES, ram_limits_mb
@@ -46,6 +47,10 @@ class Config:
     background_indexing: bool = True
     max_upload_mb: int = 200
     worker_process: bool = True  # scan in a separate low-priority process
+    # Docker: map container paths back to the host paths the user knows,
+    # e.g. [("/host/Documents", "/Users/me/Documents")].
+    path_map: list[tuple[str, str]] = field(default_factory=list)
+    can_open_files: bool = True  # False inside a container (no desktop to open files with)
 
 
 # ----------------------------------------------------------------- schemas
@@ -147,6 +152,15 @@ def create_app(config: Config) -> FastAPI:
     indexer_cls = ProcessIndexer if config.worker_process else Indexer
     indexer = indexer_cls(db, [*user_folders, str(upload_dir)], scan_settings)
     max_upload = config.max_upload_mb * 1024 * 1024
+
+    def display_path(path: str | None) -> str | None:
+        """Path as the user knows it (see Config.path_map, used in Docker)."""
+        if not path:
+            return path
+        for inner, outer in config.path_map:
+            if path == inner or path.startswith(inner.rstrip("/") + "/"):
+                return outer + path[len(inner.rstrip("/")):]
+        return path
 
     def is_upload(path: str | None) -> bool:
         return bool(path) and Path(path).parent == upload_dir
@@ -341,39 +355,45 @@ def create_app(config: Config) -> FastAPI:
         db.invalidate()
         return {"ok": True}
 
-    VIEW_MAX_BYTES = 10 * 1024 * 1024
-    VIEW_MAX_LINES = 50_000
+    text_cache = LineIndexCache()
 
-    @app.get("/api/items/{item_id}/lines", dependencies=[Depends(require_auth)])
-    def item_lines(item_id: int):
-        """Full text split into lines, for the in-app viewer.
+    def open_text(item_id: int) -> tuple[dict, LineIndex, str]:
+        """The text behind the viewer, without loading big files into memory.
 
-        Plain-text/code files are read from disk, so line numbers match the
-        real file. Other formats (PDF, Office …) use the text extracted into
-        the index."""
+        Plain-text/code files are read from disk (line numbers match the real
+        file, any size). Other formats (PDF, Office …) use the text extracted
+        into the index."""
         row = get_or_404(item_id)
         if row["kind"] not in ("file", "note"):
             raise HTTPException(400, "nothing to show for this item")
-        source = "index"
         if row["kind"] == "note":
-            text = json.loads(row["extra"] or "{}").get("content", "")
-        else:
-            path = Path(row["path"])
-            text = None
-            try:
-                if is_plain_text_type(path) and path.stat().st_size <= VIEW_MAX_BYTES:
-                    text, source = decode(path.read_bytes()), "disk"
-            except OSError:
-                pass
-            if text is None:
-                full = db.get_item(item_id, max_chars=MAX_TEXT_CHARS) or {}
-                text = full.get("body") or ""
-        lines = text.splitlines() or [""]
-        truncated = len(lines) > VIEW_MAX_LINES
-        return {
-            "id": row["id"], "kind": row["kind"], "title": row["title"], "path": row.get("path"),
-            "source": source, "total_lines": len(lines), "truncated": truncated, "lines": lines[:VIEW_MAX_LINES],
-        }
+            return row, LineIndex(text=json.loads(row["extra"] or "{}").get("content", "")), "note"
+        path = Path(row["path"])
+        try:
+            if is_plain_text_type(path) and path.is_file():
+                return row, text_cache.for_file(path), "disk"
+        except (OSError, ValueError):
+            pass
+        full = db.get_item(item_id, max_chars=MAX_TEXT_CHARS) or {}
+        return row, LineIndex(text=full.get("body") or ""), "index"
+
+    @app.get("/api/items/{item_id}/text", dependencies=[Depends(require_auth)])
+    def text_info(item_id: int):
+        row, idx, source = open_text(item_id)
+        return {"id": row["id"], "kind": row["kind"], "title": row["title"], "path": display_path(row.get("path")),
+                "source": source, "total_lines": idx.total_lines, "size": row.get("size"), "encoding": idx.encoding}
+
+    @app.get("/api/items/{item_id}/text/lines", dependencies=[Depends(require_auth)])
+    def text_lines(item_id: int, start: int = 0, count: int = Query(200, ge=1, le=2000)):
+        """Lines [start, start+count) — the viewer asks only for what is on screen."""
+        _, idx, _ = open_text(item_id)
+        return {"start": start, "lines": idx.lines(start, count)}
+
+    @app.get("/api/items/{item_id}/text/find", dependencies=[Depends(require_auth)])
+    def text_find(item_id: int, q: str = "", max: int = Query(2000, ge=1, le=10000)):
+        """Lines that contain the words; streams through the file once."""
+        _, idx, _ = open_text(item_id)
+        return idx.find(q.split(), max)
 
     @app.post("/api/items/{item_id}/reveal", dependencies=[Depends(require_auth)])
     def reveal(item_id: int):

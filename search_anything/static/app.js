@@ -380,7 +380,7 @@ function updateCount() {
   if (n) {
     if (state.total == null) sub = `${fmt(n)}${state.hasMore ? "+" : ""} รายการ · กำลังนับ…`;
     else if (state.total > n) sub = `แสดง ${fmt(n)} จาก ${state.approx ? "มากกว่า " : ""}${fmt(state.total)}`;
-    else sub = `${fmt(state.total)} รายการ`;
+    else if (!t.length) sub = `${fmt(state.total)} รายการ`; // searching: the title already says it
   }
   $("#result-count").textContent = sub;
 }
@@ -649,102 +649,218 @@ function toggleSortMenu(open = $("#sort-menu").classList.contains("hidden")) {
 }
 
 // ----------------------------------------------------------------- viewer
+/*
+ * Virtualised viewer: only the lines on screen exist in the page, and they
+ * are fetched in chunks while scrolling. A 400,000-line log opens as fast
+ * as a 40-line note, and memory stays flat.
+ */
 const canView = (r) => r && (r.kind === "file" || r.kind === "note");
 const viewerOpen = () => !$("#viewer").classList.contains("hidden");
-const viewer = { data: null, hits: [], current: -1, lineEls: [] };
+const LINE_H = 22;      // px per line (fixed, so position = line × LINE_H)
+const VCHUNK = 400;     // lines per request
+const OVERSCAN = 40;    // extra lines rendered above/below the screen
+const MAX_CHUNKS = 60;  // chunks kept in memory (24,000 lines)
+const MAX_SCROLL_PX = 15e6; // browsers cap element heights (~17-33M px): squeeze the scrollbar beyond this
+const viewer = {
+  info: null, gen: 0, chunks: new Map(), pending: new Set(), raf: 0, lastKey: "",
+  scale: 1, // scroll px per line = LINE_H * scale (< 1 only for files with millions of lines)
+  words: [], test: null, hits: [], hitLines: new Map(), current: -1, currentLine: -1,
+  flashLine: -1, revealLine: -1, findAbort: null,
+};
 
 async function openViewer(item) {
-  let data;
-  try { data = await api(`/api/items/${item.id}/lines`); }
+  let info;
+  try { info = await api(`/api/items/${item.id}/text`); }
   catch (e) { return toast(e.message); }
-  viewer.data = data;
-  $("#viewer .viewer-tile").replaceChildren(tile(data.kind));
-  $("#viewer-title").textContent = data.title;
-  const badge = data.kind === "note" ? "โน้ต" : data.source === "disk" ? "จากไฟล์จริง — เลขบรรทัดตรงกับไฟล์" : "ข้อความที่ดึงจากเอกสาร";
+  viewer.gen++;
+  Object.assign(viewer, { info, chunks: new Map(), pending: new Set(), lastKey: "", hits: [], hitLines: new Map(),
+    current: -1, currentLine: -1, flashLine: -1, revealLine: -1 });
+  $("#viewer .viewer-tile").replaceChildren(tile(info.kind));
+  $("#viewer-title").textContent = info.title;
+  const badge = info.kind === "note" ? "โน้ต" : info.source === "disk" ? "จากไฟล์จริง — เลขบรรทัดตรงกับไฟล์" : "ข้อความที่ดึงจากเอกสาร";
   $("#viewer-sub").replaceChildren(el("span", { class: "badge" }, badge),
-    `${data.total_lines.toLocaleString()} บรรทัด`, data.path ? ` · ${data.path}` : "");
+    `${info.total_lines.toLocaleString()} บรรทัด`, info.size != null ? ` · ${fmtSize(info.size)}` : "", info.path ? ` · ${info.path}` : "");
   const code = $("#viewer-code");
-  code.classList.toggle("mono", data.source === "disk");
-  code.style.setProperty("--gutter", `${String(data.total_lines).length + 1}ch`);
-  $("#viewer-line").max = data.lines.length;
+  code.classList.toggle("mono", info.source === "disk");
+  code.style.setProperty("--gutter", `${String(info.total_lines).length + 1}ch`);
+  viewer.scale = Math.min(1, MAX_SCROLL_PX / (info.total_lines * LINE_H));
+  code.replaceChildren(
+    el("div", { class: "vspacer", style: `height:${Math.ceil(info.total_lines * LINE_H * viewer.scale) + 24}px` }),
+    el("div", { class: "vwindow" }));
+  code.scrollTop = 0;
+  code.scrollLeft = 0;
+  $("#viewer-line").max = info.total_lines;
   $("#viewer-line").value = "";
   $("#viewer-q").value = $("#q").value.trim();
   $("#viewer").classList.remove("hidden");
-  renderViewer(true);
+  renderWindow();
+  runFind(true);
   $("#viewer-q").focus();
 }
 
 function closeViewer() {
+  viewer.gen++;
+  viewer.findAbort?.abort();
   $("#viewer").classList.add("hidden");
   $("#viewer-code").replaceChildren();
   $("#viewer-hits").replaceChildren();
-  viewer.data = null;
-  viewer.lineEls = [];
+  viewer.info = null;
+  viewer.chunks = new Map();
   $("#q").focus();
 }
 
-/** Count matches per line and render lines + the list of matching lines. */
-function renderViewer(jumpToFirst = false) {
-  const data = viewer.data;
-  if (!data) return;
-  const words = $("#viewer-q").value.trim().split(/\s+/).filter(Boolean);
-  const re = words.length ? new RegExp(words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|"), "gi") : null;
-  viewer.hits = [];
-  let total = 0;
+/** [first, last) lines to draw, and where the drawn block goes (px). */
+function visibleRange() {
+  const c = $("#viewer-code");
+  const total = viewer.info.total_lines;
+  const exact = c.scrollTop / (LINE_H * viewer.scale); // line at the top edge
+  const first = Math.max(0, Math.floor(exact) - OVERSCAN);
+  const last = Math.min(total, Math.ceil(exact + c.clientHeight / LINE_H) + OVERSCAN);
+  const top = c.scrollTop - (exact - first) * LINE_H; // equals first × LINE_H when not squeezed
+  return [first, last, top];
+}
+
+async function ensureChunk(k) {
+  if (viewer.chunks.has(k)) {
+    const lines = viewer.chunks.get(k);
+    viewer.chunks.delete(k); viewer.chunks.set(k, lines); // most recently used
+    return;
+  }
+  if (viewer.pending.has(k)) return;
+  viewer.pending.add(k);
+  const gen = viewer.gen;
+  try {
+    const d = await api(`/api/items/${viewer.info.id}/text/lines?start=${k * VCHUNK}&count=${VCHUNK}`);
+    if (gen !== viewer.gen) return;
+    viewer.chunks.set(k, d.lines);
+    while (viewer.chunks.size > MAX_CHUNKS) viewer.chunks.delete(viewer.chunks.keys().next().value);
+    viewer.lastKey = "";
+    scheduleRender();
+  } catch (e) { /* closed or failed: placeholders stay */ }
+  finally { if (gen === viewer.gen) viewer.pending.delete(k); }
+}
+
+function scheduleRender() {
+  if (viewer.raf) return;
+  viewer.raf = requestAnimationFrame(() => { viewer.raf = 0; renderWindow(); });
+}
+
+/** Draw only the lines in (and just around) the visible area. */
+function renderWindow() {
+  if (!viewer.info) return;
+  const [first, last, top] = visibleRange();
+  for (let k = Math.floor(first / VCHUNK); k <= Math.floor(Math.max(first, last - 1) / VCHUNK); k++) ensureChunk(k);
+  const key = `${first}:${last}:${Math.round(top)}:${viewer.currentLine}:${viewer.flashLine}:${viewer.hits.length}:${viewer.words.join(" ")}`;
+  if (key === viewer.lastKey) return; // nothing changed
+  viewer.lastKey = key;
   const frag = document.createDocumentFragment();
-  viewer.lineEls = data.lines.map((line, i) => {
-    const n = re ? (line.match(re) || []).length : 0;
-    if (n) { viewer.hits.push({ line: i, count: n }); total += n; }
-    const row = el("div", { class: `vl${n ? " has-hit" : ""}`, "data-line": i + 1 },
-      el("span", { class: "ln", title: "คัดลอกลิงก์บรรทัด" }, i + 1),
-      el("span", { class: "lt" }, n ? highlight(line, words) : line));
-    frag.append(row);
-    return row;
-  });
-  if (data.truncated) frag.append(el("div", { class: "viewer-note" }, `แสดง ${data.lines.length.toLocaleString()} บรรทัดแรกจาก ${data.total_lines.toLocaleString()} บรรทัด`));
-  $("#viewer-code").replaceChildren(frag);
-  $("#viewer-count").replaceChildren(!words.length ? "พิมพ์คำเพื่อค้นในไฟล์"
-    : total ? el("span", {}, "พบ ", el("strong", {}, total.toLocaleString()), " ครั้ง ใน ", el("strong", {}, viewer.hits.length.toLocaleString()), " บรรทัด")
-    : "ไม่พบในไฟล์นี้");
-  const list = $("#viewer-hits");
-  list.replaceChildren(...(viewer.hits.length ? viewer.hits.slice(0, 2000).map((h, k) => {
-    const text = data.lines[h.line];
-    const m = re ? text.search(re) : 0;
-    const start = Math.max(0, m - 24);
-    return el("button", { type: "button", class: "hit", "data-k": k, onclick: () => gotoHit(k) },
-      el("span", { class: "ln" }, h.line + 1),
-      el("span", { class: "txt" }, highlight((start ? "…" : "") + text.slice(start, start + 140).trim(), words)),
-      el("span", { class: "n", title: `${h.count} ครั้งในบรรทัดนี้` }, h.count));
-  }) : [el("div", { class: "empty" }, words.length ? "ไม่มีบรรทัดที่ตรง" : "บรรทัดที่เจอคำค้นจะแสดงที่นี่ กดเพื่อกระโดดไปบรรทัดนั้น")]));
+  for (let n = first; n < last; n++) {
+    const chunk = viewer.chunks.get(Math.floor(n / VCHUNK));
+    const text = chunk ? chunk[n % VCHUNK] : null;
+    const hit = viewer.hitLines.has(n) || (text != null && viewer.test && viewer.test.test(text));
+    frag.append(el("div", {
+      class: `vline${hit ? " has-hit" : ""}${n === viewer.currentLine ? " current" : ""}${n === viewer.flashLine ? " flash" : ""}${text == null ? " loading" : ""}`,
+      "data-line": n + 1,
+    }, el("span", { class: "ln" }, n + 1), el("span", { class: "lt" }, text == null ? "" : hit ? highlight(text, viewer.words) : text)));
+  }
+  const win = $("#viewer-code .vwindow");
+  win.style.transform = `translateY(${top}px)`;
+  win.replaceChildren(frag);
+  if (viewer.revealLine >= 0) revealMatch();
+}
+
+/** After jumping to a hit, also scroll sideways so the word itself is visible. */
+function revealMatch() {
+  const mark = document.querySelector(`#viewer-code .vline[data-line="${viewer.revealLine + 1}"] mark`);
+  if (!mark) return;
+  viewer.revealLine = -1;
+  const code = $("#viewer-code");
+  const x = mark.offsetLeft;
+  if (x < code.scrollLeft + 40 || x > code.scrollLeft + code.clientWidth - 80) code.scrollLeft = Math.max(0, x - 120);
+}
+
+let findDebounce;
+async function runFind(jump = false) {
+  if (!viewer.info) return;
+  const words = $("#viewer-q").value.trim().split(/\s+/).filter(Boolean);
+  viewer.words = words;
+  viewer.test = words.length ? new RegExp(words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|"), "i") : null;
+  viewer.findAbort?.abort();
+  viewer.hits = [];
+  viewer.hitLines = new Map();
   viewer.current = -1;
-  if (jumpToFirst && viewer.hits.length) gotoHit(0);
-  else $("#viewer-code").scrollTop = 0;
+  viewer.currentLine = -1;
+  viewer.lastKey = "";
+  if (!words.length) {
+    $("#viewer-count").textContent = "พิมพ์คำเพื่อค้นในไฟล์";
+    renderHits(null);
+    renderWindow();
+    return;
+  }
+  $("#viewer-count").replaceChildren(el("span", { class: "spinner", "aria-hidden": "true" }), " กำลังค้นในไฟล์…");
+  const gen = viewer.gen;
+  viewer.findAbort = new AbortController();
+  try {
+    const r = await api(`/api/items/${viewer.info.id}/text/find?${new URLSearchParams({ q: words.join(" "), max: 2000 })}`, { signal: viewer.findAbort.signal });
+    if (gen !== viewer.gen) return;
+    viewer.hits = r.hits;
+    viewer.hitLines = new Map(r.hits.map((h) => [h.line - 1, h.count]));
+    const fmt = (x) => Number(x).toLocaleString();
+    $("#viewer-count").replaceChildren(!r.total_matches ? (r.partial ? "ไม่พบ (ค้นได้บางส่วน)" : "ไม่พบในไฟล์นี้")
+      : el("span", {}, "พบ ", el("strong", {}, fmt(r.total_matches)), " ครั้ง ใน ", el("strong", {}, fmt(r.total_lines)), " บรรทัด",
+        r.partial ? " (ไฟล์ใหญ่มาก ค้นได้บางส่วน)" : ""));
+    renderHits(r);
+    viewer.lastKey = "";
+    renderWindow();
+    if (jump && viewer.hits.length) gotoHit(0);
+  } catch (e) {
+    if (e.name !== "AbortError") $("#viewer-count").textContent = e.message;
+  }
+}
+
+function renderHits(r) {
+  const list = $("#viewer-hits");
+  if (!r || !r.hits.length) {
+    list.replaceChildren(el("div", { class: "empty" }, viewer.words.length ? "ไม่มีบรรทัดที่ตรง" : "บรรทัดที่เจอคำค้นจะแสดงที่นี่ กดเพื่อกระโดดไปบรรทัดนั้น"));
+    return;
+  }
+  const items = r.hits.map((h, k) => el("button", { type: "button", class: "hit", "data-k": k, onclick: () => gotoHit(k) },
+    el("span", { class: "ln" }, h.line.toLocaleString()),
+    el("span", { class: "txt" }, highlight(h.preview.trim(), viewer.words)),
+    el("span", { class: "n", title: `${h.count} ครั้งในบรรทัดนี้` }, h.count)));
+  if (r.total_lines > r.hits.length) items.push(el("div", { class: "empty" }, `แสดง ${r.hits.length.toLocaleString()} บรรทัดแรกจาก ${r.total_lines.toLocaleString()} บรรทัด`));
+  list.replaceChildren(...items);
 }
 
 function gotoLine(lineNo, flash = true) {
-  const elx = viewer.lineEls[lineNo - 1];
-  if (!elx) return;
-  elx.scrollIntoView({ block: "center", inline: "nearest" });
-  if (flash) { elx.classList.remove("flash"); void elx.offsetWidth; elx.classList.add("flash"); }
+  if (!viewer.info) return;
+  const n = Math.min(Math.max(1, Number(lineNo) || 1), viewer.info.total_lines) - 1;
+  const code = $("#viewer-code");
+  code.scrollTop = Math.max(0, n * LINE_H * viewer.scale - code.clientHeight / 3);
+  if (flash) {
+    viewer.flashLine = n;
+    setTimeout(() => { if (viewer.flashLine === n) { viewer.flashLine = -1; viewer.lastKey = ""; scheduleRender(); } }, 1200);
+  }
+  viewer.lastKey = "";
+  renderWindow();
 }
 
 function gotoHit(k) {
   if (!viewer.hits.length) return;
   k = (k + viewer.hits.length) % viewer.hits.length; // wrap around
-  const prev = viewer.hits[viewer.current];
-  if (prev) viewer.lineEls[prev.line]?.classList.remove("current");
   document.querySelector(".hit.current")?.classList.remove("current");
   viewer.current = k;
   const hit = viewer.hits[k];
-  viewer.lineEls[hit.line].classList.add("current");
-  gotoLine(hit.line + 1);
+  viewer.currentLine = hit.line - 1;
+  viewer.revealLine = hit.line - 1;
+  gotoLine(hit.line);
   const item = document.querySelector(`.hit[data-k="${k}"]`);
   if (item) { item.classList.add("current"); item.scrollIntoView({ block: "nearest", inline: "nearest" }); }
-  $("#viewer-line").value = hit.line + 1;
+  $("#viewer-line").value = hit.line;
 }
 
-let viewerDebounce;
-$("#viewer-q").addEventListener("input", () => { clearTimeout(viewerDebounce); viewerDebounce = setTimeout(() => renderViewer(true), 150); });
+$("#viewer-code").addEventListener("scroll", scheduleRender, { passive: true });
+$("#viewer-q").addEventListener("input", () => { clearTimeout(findDebounce); findDebounce = setTimeout(() => runFind(true), 250); });
 $("#viewer-q").addEventListener("keydown", (e) => {
   if (e.key === "Enter") { e.preventDefault(); gotoHit(viewer.current + (e.shiftKey ? -1 : 1)); }
 });
@@ -759,8 +875,13 @@ $("#viewer").addEventListener("click", (e) => { if (e.target === $("#viewer")) c
 $("#viewer-line").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); gotoLine(Number(e.target.value)); } });
 $("#viewer-code").addEventListener("click", (e) => {
   const ln = e.target.closest(".ln");
-  if (ln) { const n = ln.textContent; $("#viewer-line").value = n; copy(`${viewer.data.path || viewer.data.title}:${n}`, `คัดลอก ${viewer.data.title}:${n}`); }
+  if (ln && viewer.info) {
+    const n = ln.textContent;
+    $("#viewer-line").value = n;
+    copy(`${viewer.info.path || viewer.info.title}:${n}`, `คัดลอก ${viewer.info.title}:${n}`);
+  }
 });
+window.addEventListener("resize", () => { if (viewerOpen()) { viewer.lastKey = ""; scheduleRender(); } });
 
 // ------------------------------------------------------------------ guide
 /** "น้องค้น" — a magnifying glass with a face (SVG drawn for this app). */
