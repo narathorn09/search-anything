@@ -113,7 +113,10 @@
 
 /* ================================================================== base */
 * { box-sizing: border-box; }
-html { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+html { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+  /* Always reserve the scrollbar's space, so the page doesn't shift sideways
+     when a long result list adds a scrollbar and a short one removes it. */
+  overflow-y: scroll; scrollbar-gutter: stable; } /* always-present track: works in every browser */
 body {
   margin: 0; background: var(--color-background-body); color: var(--color-text-primary);
   font-family: var(--font-family-body); font-size: 1rem; line-height: 1.5;
@@ -237,6 +240,8 @@ mark { background: var(--color-mark); color: inherit; border-radius: 3px; paddin
 /* "tabs": underline tabs above results */
 :root[data-filters="tabs"] #filters { grid-area: filters; display: flex; gap: var(--space-4); overflow-x: auto;
   border-bottom: 1px solid var(--color-border); margin-bottom: -6px; }
+#filters { scrollbar-width: none; } /* tabs scroll sideways by swipe/trackpad; no bar under them */
+#filters::-webkit-scrollbar { display: none; }
 .filter-item {
   display: flex; align-items: baseline; gap: 6px; padding: 8px 0; border: 0; background: none; cursor: pointer;
   font-size: 15px; line-height: 22px; color: var(--color-text-secondary); white-space: nowrap; transition: color .16s;
@@ -248,6 +253,7 @@ mark { background: var(--color-mark); color: inherit; border-radius: 3px; paddin
 
 /* "rail": big-type list on the left, like the fastwork showcase */
 :root[data-filters="rail"] #main { grid-template-columns: 220px minmax(0, 1fr); grid-template-areas: "filters frame" ". footer";
+  grid-template-rows: 1fr auto; /* two rows here: the footer row must not stretch */
   max-width: calc(var(--content-max) + 48px + 220px + var(--space-6)); column-gap: var(--space-6); }
 :root[data-filters="rail"] #filters { grid-area: filters; display: flex; flex-direction: column; gap: var(--space-1);
   position: sticky; top: var(--space-6); align-self: start; padding-top: var(--space-2); }
@@ -316,7 +322,13 @@ mark { background: var(--color-mark); color: inherit; border-radius: 3px; paddin
 }
 #detail .actions { display: flex; gap: var(--space-1-5); flex-wrap: wrap; }
 
-/* side: a sticky column next to the results */
+/* side: a sticky column next to the results. It keeps its width even with
+   nothing selected (or no results), so the list never jumps wider/narrower. */
+:root[data-detail-mode="side"] #detail:empty { display: flex; }
+:root[data-detail-mode="side"] #detail:empty::before {
+  content: "เลือกรายการทางซ้ายเพื่อดูรายละเอียด"; display: grid; place-items: center; min-height: 220px; flex: 1;
+  border: 1px dashed var(--color-border-emphasized); border-radius: var(--radius-container);
+  color: var(--color-text-disabled); font-size: 14px; text-align: center; padding: var(--space-4); }
 :root[data-detail-mode="side"] #detail { width: 44%; flex-shrink: 0; position: sticky; top: calc(var(--size-search) + 32px);
   max-height: calc(100vh - var(--size-search) - 48px); overflow-y: auto; padding: var(--space-1) 2px var(--space-4); }
 :root[data-detail-mode="side"] #detail .close { display: none; }
@@ -468,7 +480,9 @@ mark { background: var(--color-mark); color: inherit; border-radius: 3px; paddin
 
 /* =============================================================== footer */
 #main > footer { grid-area: footer; display: flex; justify-content: space-between; flex-wrap: wrap; gap: var(--space-1);
-  font-size: 12px; padding: var(--space-1) var(--space-1-5); }
+  font-size: 12px; padding: var(--space-1) var(--space-1-5);
+  /* Always at the bottom of the window, whatever the length of the list. */
+  position: sticky; bottom: 0; z-index: 12; align-self: end; background: var(--color-background-body); }
 
 .select { height: 34px; padding: 0 10px; border: 1px solid var(--color-border-emphasized); border-radius: var(--radius-element);
   background: var(--color-background-surface); color: var(--color-text-primary); }
@@ -484,6 +498,8 @@ mark { background: var(--color-mark); color: inherit; border-radius: 3px; paddin
   margin: 0 -4px; padding: 6px 10px; background: var(--color-background-body); }
 :root[data-layout="framed"] .list-col > .col-head { background: var(--color-background-surface); }
 .col-tools { display: inline-flex; align-items: center; gap: var(--space-2); }
+#result-title, #result-count, .filter-item .count, .stats strong, .viewer-count { font-variant-numeric: tabular-nums; }
+.list-col > .col-head { min-height: 42px; }
 .sort-wrap { position: relative; }
 .sort-btn { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; border: 1px solid var(--color-border);
   border-radius: 999px; background: var(--color-background-surface); cursor: pointer; font-size: 13px; color: var(--color-text-primary); }
@@ -534,14 +550,20 @@ mark { background: var(--color-mark); color: inherit; border-radius: 3px; paddin
 .hit .n { font-size: 11.5px; padding: 0 7px; border-radius: 999px; background: var(--color-mark); color: var(--color-text-primary); }
 .viewer-code { overflow: auto; padding: var(--space-1-5) 0 var(--space-6); font-size: 13.5px; line-height: 1.6; outline: none; }
 .viewer-code.mono { font-family: var(--font-family-code); font-size: 13px; }
-.vl { display: grid; grid-template-columns: var(--gutter, 5ch) minmax(0, 1fr); gap: var(--space-2); padding: 0 var(--space-3) 0 0; scroll-margin: 30vh; }
-.vl .ln { text-align: right; color: var(--color-text-disabled); user-select: none; font-family: var(--font-family-code); font-size: 12px;
-  padding-left: var(--space-2); cursor: pointer; }
-.vl .lt { white-space: pre-wrap; word-break: break-word; tab-size: 4; min-height: 1.6em; }
-.vl.has-hit .ln { color: var(--color-text-primary); font-weight: 600; }
-.vl.has-hit { background: color-mix(in srgb, var(--color-mark) 22%, transparent); }
-.vl.current { background: color-mix(in srgb, var(--color-mark) 55%, transparent); box-shadow: inset 3px 0 0 var(--color-accent); }
-.vl mark.current { outline: 2px solid var(--color-accent); }
+.viewer-code { position: relative; }
+.vspacer { width: 1px; }
+.vwindow { position: absolute; top: 0; left: 0; min-width: 100%; width: max-content; will-change: transform; }
+.vline { display: grid; grid-template-columns: var(--gutter, 5ch) max-content; column-gap: var(--space-2); height: 22px;
+  line-height: 22px; padding-right: var(--space-3); white-space: pre; }
+.vline .ln { position: sticky; left: 0; z-index: 1; text-align: right; color: var(--color-text-disabled); user-select: none;
+  font-family: var(--font-family-code); font-size: 12px; padding-left: var(--space-2); cursor: pointer;
+  background: var(--color-background-surface); }
+.vline .lt { tab-size: 4; }
+.vline.loading .lt::after { content: "…"; color: var(--color-text-disabled); }
+.vline.has-hit .ln { color: var(--color-text-primary); font-weight: 600; }
+.vline.has-hit, .vline.has-hit .ln { background: color-mix(in srgb, var(--color-mark) 22%, var(--color-background-surface)); }
+.vline.current, .vline.current .ln { background: color-mix(in srgb, var(--color-mark) 55%, var(--color-background-surface)); }
+.vline.current .ln { box-shadow: inset 3px 0 0 var(--color-accent); }
 .viewer-note { padding: var(--space-2) var(--space-3); font-size: 12.5px; color: var(--color-text-secondary); }
 
 /* ================================================================ guide */
@@ -705,7 +727,7 @@ dialog .note { font-size: var(--text-supporting); color: var(--color-text-second
   #scrim:not(.hidden) { animation: fade-in .3s var(--ease-out-expo) both; }
   .settings:not(.hidden) .settings-window { animation: pop-in .34s var(--ease-out-expo) both; }
   .viewer:not(.hidden) .viewer-window { animation: pop-in .34s var(--ease-out-expo) both; }
-  .vl.flash { animation: flash 1.1s var(--ease-standard); }
+  .vline.flash, .vline.flash .ln { animation: flash 1.1s var(--ease-standard); }
   @keyframes flash { 0%, 30% { background: color-mix(in srgb, var(--color-accent) 22%, transparent); } }
   #scan-pill:not(.hidden) { animation: pop-in .32s var(--ease-out-expo) both; }
   dialog[open] .panel { animation: pop-in .32s var(--ease-out-expo) both; }
@@ -725,7 +747,8 @@ dialog .note { font-size: var(--text-supporting); color: var(--color-text-second
 /* =========================================================== responsive */
 @media (max-width: 900px) {
   /* The rail turns into tabs on narrow screens. */
-  :root[data-filters="rail"] #main { grid-template-columns: minmax(0, 1fr); grid-template-areas: "filters" "frame" "footer"; }
+  :root[data-filters="rail"] #main { grid-template-columns: minmax(0, 1fr); grid-template-areas: "filters" "frame" "footer";
+    grid-template-rows: auto 1fr auto; }
   :root[data-filters="rail"] #filters { flex-direction: row; position: static; gap: var(--space-4); overflow-x: auto;
     border-bottom: 1px solid var(--color-border); padding-top: 0; }
   :root[data-filters="rail"] .filter-item, :root[data-filters="rail"] .filter-item.active { font-size: 15px; line-height: 22px; padding: 8px 0; }

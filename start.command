@@ -1,46 +1,144 @@
 #!/usr/bin/env bash
 # Search Anything — one-step start for macOS (also works on Linux).
 #   Double-click this file in Finder, or run:  ./start.command
-#   Extra options are passed to the app, e.g.  ./start.command --folder ~/Work
-# First run: installs what it needs into .venv (a few minutes). Later runs start at once.
+#
+# Runs in Docker when Docker is installed and running, otherwise in a Python
+# virtual environment (.venv). Options:
+#   --docker          use Docker (fail if it is not available)
+#   --no-docker       always use Python/.venv
+#   --folder PATH     folder to search (repeatable; default: Documents, Desktop, Downloads)
+#   anything else is passed to the app, e.g. --reindex-interval 600
+# Environment: SA_PORT (default 8765).
 set -euo pipefail
 cd "$(dirname "$0")"
 
 say() { printf '\n\033[1m%s\033[0m\n' "$*"; }
+PORT="${SA_PORT:-8765}"
+URL="http://localhost:$PORT"
+NAME="search-anything"
+IMAGE="search-anything:local"
 
-# 1) Python 3.10+
-PY=""
-for c in python3.13 python3.12 python3.11 python3.10 python3; do
-  if command -v "$c" >/dev/null 2>&1 && "$c" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' 2>/dev/null; then
-    PY="$c"; break
-  fi
+USE="auto"
+FOLDERS=()
+APP_ARGS=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --docker) USE="docker" ;;
+    --no-docker) USE="venv" ;;
+    --folder) shift; FOLDERS+=("$1") ;;
+    --folder=*) FOLDERS+=("${1#--folder=}") ;;
+    *) APP_ARGS+=("$1") ;;
+  esac
+  shift
 done
-if [ -z "$PY" ]; then
-  if command -v brew >/dev/null 2>&1; then
-    say "Installing Python with Homebrew…"
-    brew install python@3.12
-    PY="$(brew --prefix)/bin/python3.12"
-  else
-    say "Python 3.10 or newer is needed. Opening the download page — install it, then run this file again."
-    open "https://www.python.org/downloads/macos/" 2>/dev/null || true
-    read -r -p "Press Enter to close…" _ || true
-    exit 1
+
+open_url() {
+  if command -v open >/dev/null 2>&1; then open "$1"
+  elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$1" >/dev/null 2>&1 || true
+  else echo "Open $1 in your browser"; fi
+}
+
+wait_and_open() {
+  for _ in $(seq 1 120); do
+    if curl -fsS -o /dev/null "$URL/api/status" 2>/dev/null; then open_url "$URL"; return 0; fi
+    sleep 0.5
+  done
+  echo "The app did not answer at $URL yet."
+}
+
+docker_ready() { command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; }
+
+# ------------------------------------------------------------------ venv
+run_venv() {
+  PY=""
+  for c in python3.13 python3.12 python3.11 python3.10 python3; do
+    if command -v "$c" >/dev/null 2>&1 && "$c" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' 2>/dev/null; then
+      PY="$c"; break
+    fi
+  done
+  if [ -z "$PY" ]; then
+    if command -v brew >/dev/null 2>&1; then
+      say "Installing Python with Homebrew…"
+      brew install python@3.12
+      PY="$(brew --prefix)/bin/python3.12"
+    else
+      say "Python 3.10 or newer is needed. Opening the download page — install it (or Docker Desktop), then run this file again."
+      open_url "https://www.python.org/downloads/macos/"
+      read -r -p "Press Enter to close…" _ || true
+      exit 1
+    fi
   fi
-fi
+  if [ ! -x .venv/bin/python ]; then
+    say "First run: preparing Python environment (a few minutes)…"
+    "$PY" -m venv .venv
+  fi
+  HASH="$(.venv/bin/python -c "import hashlib; print(hashlib.sha256(open('requirements.txt','rb').read()).hexdigest())")"
+  if [ ! -f .venv/.requirements.sha ] || [ "$(cat .venv/.requirements.sha)" != "$HASH" ]; then
+    say "Installing packages…"
+    .venv/bin/python -m pip install --quiet --upgrade pip
+    .venv/bin/python -m pip install --quiet -r requirements.txt
+    echo "$HASH" > .venv/.requirements.sha
+  fi
+  say "Starting Search Anything (Python)…   data: ./data   stop: Ctrl+C"
+  ARGS=(--port "$PORT" --open-browser)
+  if [ ${#FOLDERS[@]} -eq 0 ]; then ARGS+=(--default-folders); else for f in "${FOLDERS[@]}"; do ARGS+=(--folder "$f"); done; fi
+  exec .venv/bin/python -m search_anything "${ARGS[@]}" ${APP_ARGS[@]+"${APP_ARGS[@]}"}
+}
 
-# 2) Private environment + packages (only re-installed when requirements.txt changes)
-if [ ! -x .venv/bin/python ]; then
-  say "First run: preparing (this takes a few minutes)…"
-  "$PY" -m venv .venv
-fi
-HASH="$(.venv/bin/python -c "import hashlib; print(hashlib.sha256(open('requirements.txt','rb').read()).hexdigest())")"
-if [ ! -f .venv/.requirements.sha ] || [ "$(cat .venv/.requirements.sha)" != "$HASH" ]; then
-  say "Installing packages…"
-  .venv/bin/python -m pip install --quiet --upgrade pip
-  .venv/bin/python -m pip install --quiet -r requirements.txt
-  echo "$HASH" > .venv/.requirements.sha
-fi
+# ---------------------------------------------------------------- docker
+run_docker() {
+  say "Building the Docker image (quick after the first time)…"
+  if ! docker build -q -t "$IMAGE" . >/dev/null; then
+    if docker image inspect "$IMAGE" >/dev/null 2>&1; then
+      say "Build failed (offline?) — using the image built earlier."
+    elif [ "$USE" = "docker" ]; then
+      say "Docker build failed."; exit 1
+    else
+      say "Docker build failed — starting with Python instead."; run_venv
+    fi
+  fi
 
-# 3) Run (browser opens by itself; close with Ctrl+C or by closing this window)
-say "Starting Search Anything…"
-exec .venv/bin/python -m search_anything --open-browser --default-folders "$@"
+  # Folders to search: mounted read-only at /host/<name>.
+  if [ ${#FOLDERS[@]} -eq 0 ]; then
+    for d in Documents Desktop Downloads; do [ -d "$HOME/$d" ] && FOLDERS+=("$HOME/$d"); done
+  fi
+  MOUNTS=(); INNER=(); MAP=""
+  for f in ${FOLDERS[@]+"${FOLDERS[@]}"}; do
+    abs="$(cd "$f" 2>/dev/null && pwd)" || { echo "Skipping missing folder: $f"; continue; }
+    name="$(basename "$abs")"; inner="/host/$name"; n=2
+    while printf '%s\n' ${INNER[@]+"${INNER[@]}"} | grep -qx "$inner"; do inner="/host/$name-$n"; n=$((n + 1)); done
+    INNER+=("$inner")
+    MOUNTS+=(--mount "type=bind,source=$abs,target=$inner,readonly")
+    MAP="$MAP$inner=$abs;"
+  done
+  SA_FOLDERS_IN="$(IFS=:; echo ${INNER[@]+"${INNER[*]}"})"
+
+  docker rm -f "$NAME" >/dev/null 2>&1 || true
+  say "Starting Search Anything (Docker)…   data: Docker volume search-anything-data   stop: Ctrl+C"
+  # Port published on 127.0.0.1 only: reachable from this computer, not the network.
+  docker run -d --rm --init --name "$NAME" -p "127.0.0.1:$PORT:8765" \
+    -v search-anything-data:/data \
+    -e SA_MODE=local -e SA_HOST=0.0.0.0 -e SA_IN_CONTAINER=1 \
+    -e SA_FOLDERS="$SA_FOLDERS_IN" -e SA_PATH_MAP="$MAP" \
+    ${MOUNTS[@]+"${MOUNTS[@]}"} "$IMAGE" python -m search_anything ${APP_ARGS[@]+"${APP_ARGS[@]}"} >/dev/null
+  stop_app() { say "Stopping…"; docker stop "$NAME" >/dev/null 2>&1 || true; exit 0; }
+  trap stop_app INT TERM HUP
+  wait_and_open
+  # Follow the logs in the background and *wait*: unlike a foreground command,
+  # wait is interrupted at once by Ctrl+C / closing the window / TERM.
+  docker logs -f "$NAME" 2>&1 &
+  wait $! || true
+  stop_app
+}
+
+if [ "$USE" = "venv" ]; then
+  run_venv
+elif docker_ready; then
+  run_docker
+elif [ "$USE" = "docker" ]; then
+  say "Docker is not installed or not running. Start Docker Desktop, or run without --docker."
+  exit 1
+else
+  say "Docker not found or not running — using Python instead."
+  run_venv
+fi

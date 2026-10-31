@@ -274,7 +274,7 @@ def test_sorting(tmp_path):
     assert c.get("/api/search", params={"q": "kiwi", "sort": "random"}).status_code == 422
 
 
-def test_lines_for_viewer(tmp_path):
+def test_text_api_for_viewer(tmp_path):
     root = tmp_path / "v"
     root.mkdir()
     (root / "code.py").write_text("import os\n\ndef kiwi():\n    return 'Kiwi kiwi'\n")
@@ -283,17 +283,22 @@ def test_lines_for_viewer(tmp_path):
     c = make_client(tmp_path, folders=[str(root)])
     c.app.state.indexer.run()
     by_title = {r["title"]: r for r in c.get("/api/search", params={"q": "kiwi"}).json()["results"]}
-    code = c.get(f"/api/items/{by_title['code.py']['id']}/lines").json()
-    assert code["source"] == "disk" and code["total_lines"] == 4
-    assert code["lines"][2] == "def kiwi():" and code["lines"][1] == ""  # exact lines, blank kept
-    doc = c.get(f"/api/items/{by_title['doc.docx']['id']}/lines").json()
-    assert doc["source"] == "index" and doc["lines"] == ["หน้าแรก", "kiwi ในเอกสาร"]
+    code_id = by_title["code.py"]["id"]
+    info = c.get(f"/api/items/{code_id}/text").json()
+    assert info["source"] == "disk" and info["total_lines"] == 4
+    assert c.get(f"/api/items/{code_id}/text/lines", params={"start": 1, "count": 2}).json() == {"start": 1, "lines": ["", "def kiwi():"]}
+    found = c.get(f"/api/items/{code_id}/text/find", params={"q": "kiwi"}).json()
+    assert found["total_matches"] == 3 and found["total_lines"] == 2
+    assert [h["line"] for h in found["hits"]] == [3, 4] and found["hits"][1]["count"] == 2
+    doc_id = by_title["doc.docx"]["id"]
+    assert c.get(f"/api/items/{doc_id}/text").json()["source"] == "index"
+    assert c.get(f"/api/items/{doc_id}/text/lines", params={"count": 10}).json()["lines"] == ["หน้าแรก", "kiwi ในเอกสาร"]
     note = c.post("/api/items", json={"kind": "note", "title": "n", "content": "a\nkiwi b"}).json()
-    assert c.get(f"/api/items/{note['id']}/lines").json()["lines"] == ["a", "kiwi b"]
+    assert c.get(f"/api/items/{note['id']}/text/lines").json()["lines"] == ["a", "kiwi b"]
     bm = c.post("/api/items", json={"kind": "bookmark", "title": "b", "url": "x.com"}).json()
-    assert c.get(f"/api/items/{bm['id']}/lines").status_code == 400
+    assert c.get(f"/api/items/{bm['id']}/text").status_code == 400
+    assert c.get(f"/api/items/{code_id}/text/lines", params={"count": 5000}).status_code == 422  # capped
     assert "เอกสาร" in c.get("/api/status").json()["supported_formats"]
-
 
 def test_all_view_shows_files_before_searching(tmp_path):
     import os as _os
@@ -311,3 +316,25 @@ def test_all_view_shows_files_before_searching(tmp_path):
     assert titles == ["newest note", "fresh-plan.md", "old-report.txt"]  # files included, newest first
     assert ids(c.get("/api/search", params={"q": "", "kind": "note"})) == ["newest note"]
     assert ids(c.get("/api/search", params={"q": "", "kind": "file"})) == ["fresh-plan.md", "old-report.txt"]
+
+
+def test_container_local_mode_maps_paths_and_downloads(tmp_path):
+    root = tmp_path / "host" / "Documents"
+    root.mkdir(parents=True)
+    (root / "plan.txt").write_text("kiwi plan")
+    c = make_client(tmp_path, folders=[str(root)], can_open_files=False,
+                    path_map=[(str(root), "C:\\Users\\me\\Documents")])
+    c.app.state.indexer.run()
+    st = c.get("/api/status").json()
+    assert st["in_container"] is True and st["can_open_files"] is False and st["can_edit_folders"] is False
+    assert st["folders"] == ["C:\\Users\\me\\Documents"]
+    r = c.get("/api/search", params={"q": "kiwi"}).json()["results"][0]
+    assert r["path"] == "C:\\Users\\me\\Documents\\plan.txt"  # the path the user knows
+    assert c.post(f"/api/files/{r['id']}/open").status_code == 403  # no desktop in a container
+    assert c.get(f"/api/files/{r['id']}/download").content == b"kiwi plan"
+
+
+def test_path_map_parsing():
+    from search_anything.__main__ import _parse_path_map
+    assert _parse_path_map("/host/Documents=/Users/me/Documents;/host/Work=D:\\Work;;bad") == [
+        ("/host/Documents", "/Users/me/Documents"), ("/host/Work", "D:\\Work")]
