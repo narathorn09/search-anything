@@ -25,7 +25,7 @@ from .db import Database
 from .extractors import MAX_TEXT_CHARS, SUPPORTED, decode, is_plain_text_type
 from .indexer import Indexer, ScanSettings
 from .worker import ProcessIndexer
-from .resources import CPU_COUNT, PROFILES
+from .resources import CONTAINER, CPU_COUNT, PROFILES, ram_limits_mb
 from .vault import Vault, VaultError, VaultLocked
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -247,11 +247,13 @@ def create_app(config: Config) -> FastAPI:
                     "max_upload_mb": config.max_upload_mb,
                     "indexing": indexer.status(),
                     "profiles": {
-                        k: {"label": p.label, "max_cpu": p.max_cpu, "max_ram_mb": p.max_ram_mb,
+                        k: {"label": p.label, "max_cpu": p.max_cpu, "max_ram_mb": ram_limits_mb(p)[0],
                             "threads": p.extract_workers, "parallel_writes": p.write_parallel}
                         for k, p in PROFILES.items()
                     },
                     "cpu_count": CPU_COUNT,
+                    "container": {"cpus": CONTAINER.cpus,
+                                  "memory_mb": round(CONTAINER.memory_bytes / 1e6) if CONTAINER.memory_bytes else None},
                     "supported_formats": SUPPORTED,
                 }
             )

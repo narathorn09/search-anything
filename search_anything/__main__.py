@@ -59,9 +59,22 @@ def main(argv: list[str] | None = None) -> None:
     if allowed_hosts is None and os.environ.get("SA_ALLOWED_HOSTS"):
         allowed_hosts = os.environ["SA_ALLOWED_HOSTS"].split(",")
 
+    data_dir = Path(args.data_dir).expanduser()
+    try:
+        data_dir.mkdir(parents=True, exist_ok=True)
+        probe = data_dir / ".write-test"
+        probe.write_text("ok")
+        probe.unlink()
+    except OSError as exc:
+        sys.exit(
+            f"cannot write to the data folder {data_dir} ({exc.strerror}).\n"
+            "Docker/Kubernetes: mount a volume there that user 10001 can write "
+            "(Kubernetes/Rancher: set the pod's fsGroup / Filesystem Group to 10001)."
+        )
+
     config = Config(
         mode=args.mode,
-        data_dir=Path(args.data_dir).expanduser(),
+        data_dir=data_dir,
         folders=folders,
         password=password,
         reindex_interval=args.reindex_interval,

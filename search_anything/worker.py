@@ -5,7 +5,8 @@ Why a process (not just threads):
     on Linux, macOS and Windows alike;
   * the web app is never slowed by the scan (no shared Python GIL);
   * a hard RAM ceiling can be enforced: the supervisor kills the worker if it
-    grows past it, the web app keeps running, and the scan restarts;
+    grows past it (1.5x the profile limit, and at most 70% of a container's
+    memory limit), the web app keeps running, and the scan restarts;
   * if a file crashes the reader (corrupt PDF, out of memory…), the worker
     restarts in "careful" mode (one file at a time, reporting each file before
     reading it), finds the culprit, indexes it by name only and carries on.
@@ -28,11 +29,10 @@ from pathlib import Path
 
 from .db import Database
 from .indexer import IndexStats, Indexer, ScanSettings
-from .resources import PROFILES, psutil
+from .resources import PROFILES, psutil, ram_limits_mb
 
 log = logging.getLogger(__name__)
 
-HARD_RAM_FACTOR = 1.5  # the brake pauses at max_ram_mb; the supervisor kills at 1.5x
 MAX_RESTARTS = 8  # per scan
 STOP_GRACE_SECONDS = 10  # after Stop, wait this long for a clean exit before terminating
 PROGRESS_EVERY = 0.25
@@ -103,7 +103,7 @@ class ProcessIndexer(Indexer):
     def __init__(self, db: Database, folders=None, settings=None, hard_ram_mb: int | None = None,
                  max_restarts: int = MAX_RESTARTS):
         super().__init__(db, folders, settings, stop_event=_CTX.Event())
-        self.hard_ram_mb = hard_ram_mb  # None = profile.max_ram_mb * HARD_RAM_FACTOR
+        self.hard_ram_mb = hard_ram_mb  # None = resources.ram_limits_mb(profile)[1]
         self.max_restarts = max_restarts
         self.worker_pid: int | None = None
 
@@ -126,7 +126,7 @@ class ProcessIndexer(Indexer):
 
     def _scan(self) -> IndexStats:  # runs in a thread of the web process
         profile = PROFILES[self.settings.profile]
-        hard_ram = self.hard_ram_mb or int(profile.max_ram_mb * HARD_RAM_FACTOR)
+        hard_ram = self.hard_ram_mb or ram_limits_mb(profile)[1]
         self.running = True
         start = time.time()
         restarts, careful, errors = 0, False, []

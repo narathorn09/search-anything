@@ -867,7 +867,10 @@ function pageScanning() {
   return [
     el("section", { class: "group" }, el("h3", {}, "สถานะ"), card),
     el("section", { class: "group" }, el("h3", {}, "การใช้ทรัพยากร (กันเครื่องค้าง)"), profiles,
-      el("p", { class: "hint" }, `ระหว่างสแกน ระบบจะวัด CPU และ RAM ทุกครึ่งวินาที ถ้าเกินขีดจำกัด หรือ RAM ว่างของเครื่องเหลือน้อย จะพักชั่วคราวเอง (เครื่องนี้มี ${s.cpu_count} คอร์)`)),
+      el("p", { class: "hint" }, `ระหว่างสแกน ระบบจะวัด CPU และ RAM ทุกครึ่งวินาที ถ้าเกินขีดจำกัด หรือ RAM ว่างเหลือน้อย จะพักชั่วคราวเอง · ${
+        s.container && (s.container.cpus || s.container.memory_mb)
+          ? `รันในคอนเทนเนอร์: CPU ${s.container.cpus ? s.container.cpus.toFixed(1) + " คอร์" : "ไม่จำกัด"} · RAM ${s.container.memory_mb ? s.container.memory_mb + " MB" : "ไม่จำกัด"} (ขีดจำกัดปรับตามคอนเทนเนอร์แล้ว)`
+          : `เครื่องนี้มี ${s.cpu_count} คอร์`}`)),
     group("สแกนอัตโนมัติ", [
       pref("สแกนอัตโนมัติ", "ตรวจหาไฟล์ใหม่/ที่แก้ไขเป็นระยะ (อ่านเฉพาะไฟล์ที่เปลี่ยน)",
         toggle(ix.settings.auto, (v) => saveScanSettings({ auto: v }), "สแกนอัตโนมัติ")),

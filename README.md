@@ -75,6 +75,18 @@ SA_PASSWORD='รหัสผ่านสำหรับล็อกอิน' py
 - ถ้าเปิดให้เข้าจากอินเทอร์เน็ต ควรวางไว้หลัง HTTPS (เช่น Caddy, nginx, Cloudflare Tunnel) และใส่ `--https-cookie`
 - จำกัดชื่อโดเมนที่รับได้ด้วย `--allowed-host search.example.com` ได้
 
+## Docker / Kubernetes / Rancher
+
+```bash
+docker build -t search-anything .
+```
+
+```bash
+docker run -d -p 8765:8765 -e SA_PASSWORD='รหัสผ่าน' -v search-anything-data:/data search-anything
+```
+
+ข้อมูลทั้งหมดอยู่ที่ `/data` **ต้องผูก volume ถาวรไว้เสมอ** ไม่อย่างนั้นข้อมูลจะหายเมื่อสร้าง container หรือ pod ใหม่ ส่วน Rancher ดูคู่มือทีละขั้นได้ที่ [docs/deploy-rancher.md](docs/deploy-rancher.md) หรือใช้ไฟล์ [deploy/rancher.yaml](deploy/rancher.yaml) กับปุ่ม Import YAML
+
 ## ตัวเลือกทั้งหมด
 
 | ตัวเลือก | ตัวแปร environment | ค่าเริ่มต้น | ความหมาย |
