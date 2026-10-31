@@ -456,7 +456,7 @@ async function primaryAction(r) {
 }
 
 async function openFile(id) {
-  if (state.status.mode === "local") {
+  if (state.status.can_open_files) {
     try { await api(`/api/files/${id}/open`, { method: "POST" }); toast("กำลังเปิดไฟล์…"); }
     catch (e) { toast(e.message); }
   } else {
@@ -508,7 +508,7 @@ async function showDetail(id) {
       el("div", {}, el("strong", {}, fmtSize(item.size)), el("span", {}, "ขนาด")),
       el("div", {}, el("strong", {}, fmtShortDate(item.mtime)), el("span", {}, "แก้ไขล่าสุด"))));
     parts.push(el("div", { class: "actions" },
-      btn(state.status.mode === "local" ? "เปิดไฟล์" : "ดาวน์โหลด", () => openFile(item.id), "primary", "open"),
+      btn(state.status.can_open_files ? "เปิดไฟล์" : "ดาวน์โหลด", () => openFile(item.id), "primary", "open"),
       btn("ดูเนื้อหา", () => openViewer(item), "secondary", "lines"),
       btn("คัดลอก path", () => copy(item.path, "คัดลอก path แล้ว"), "secondary", "copy"),
       item.uploaded ? btn("ลบไฟล์", () => deleteItem(item), "danger", "trash") : null));
@@ -1329,7 +1329,9 @@ function pageScanning() {
         } catch (e) { err.textContent = e.message; }
       }, "primary sm"))), true));
   } else {
-    folderRows.push(pref("โฟลเดอร์ที่ค้นหา", "ตั้งค่าตอนรันเซิร์ฟเวอร์ (--folder) · ไฟล์ที่อัปโหลดค้นได้เสมอ",
+    folderRows.push(pref("โฟลเดอร์ที่ค้นหา", s.in_container
+        ? "รันใน Docker: เลือกโฟลเดอร์ตอนเปิดแอป เช่น ./start.command --folder ~/Work (แสดงเป็น path จริงของเครื่อง)"
+        : "ตั้งค่าตอนรันเซิร์ฟเวอร์ (--folder) · ไฟล์ที่อัปโหลดค้นได้เสมอ",
       el("ul", { class: "chips" }, s.folders.length ? s.folders.map((f) => el("li", { class: "chip" }, f)) : el("li", { class: "chip" }, "—")), true));
   }
 
@@ -1480,7 +1482,7 @@ function renderStatusUI() {
     : pr.phase === "walking" ? `กำลังสำรวจโฟลเดอร์… ${Number(pr.scanned || 0).toLocaleString()} ไฟล์`
     : pr.total ? `กำลังสแกน ${pr.done.toLocaleString()} / ${pr.total.toLocaleString()} (${pct}%)` : "กำลังสแกน…";
   $("#status-line").textContent = ix.running ? `${scanText}${pr.throttled ? " · พักชั่วคราว" : ""}`
-    : `${s.mode === "local" ? "Local" : "Server"} · ${total.toLocaleString()} รายการ`;
+    : `${s.mode === "local" ? (s.in_container ? "Local (Docker)" : "Local") : "Server"} · ${total.toLocaleString()} รายการ`;
 
   const pill = $("#scan-pill");
   pill.classList.toggle("hidden", !ix.running);

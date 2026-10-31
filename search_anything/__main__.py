@@ -56,8 +56,12 @@ def main(argv: list[str] | None = None) -> None:
         folders += [f for f in os.environ["SA_FOLDERS"].split(os.pathsep) if f]
 
     host = args.host or ("127.0.0.1" if args.mode == "local" else "0.0.0.0")
-    if args.mode == "local" and host not in ("127.0.0.1", "localhost"):
+    in_container = os.environ.get("SA_IN_CONTAINER") == "1"
+    if args.mode == "local" and host not in ("127.0.0.1", "localhost") and not in_container:
         sys.exit("local mode has no login, so it only listens on 127.0.0.1. Use --mode server.")
+    # SA_IN_CONTAINER=1 (set by the start scripts): local mode inside Docker must
+    # listen on the container's network; the scripts publish the port on the
+    # host's 127.0.0.1 only, so it is still reachable from this computer only.
 
     password = os.environ.get("SA_PASSWORD")
     if args.mode == "server" and not password:
@@ -96,6 +100,8 @@ def main(argv: list[str] | None = None) -> None:
         allowed_hosts=allowed_hosts,
         https_only_cookie=args.https_cookie,
         max_upload_mb=args.max_upload_mb,
+        path_map=_parse_path_map(os.environ.get("SA_PATH_MAP", "")),
+        can_open_files=not in_container,
     )
     # Background work (counting, scanning supervision) shares the GIL with the
     # web handlers; shorter switch intervals keep searches snappy meanwhile
@@ -107,6 +113,16 @@ def main(argv: list[str] | None = None) -> None:
     if args.open_browser:
         threading.Thread(target=_open_when_ready, args=(url,), daemon=True).start()
     uvicorn.run(app, host=host, port=args.port, log_level="warning")
+
+
+def _parse_path_map(text: str) -> list[tuple[str, str]]:
+    """"/host/Documents=/Users/me/Documents;/host/Work=D:\\Work" -> pairs."""
+    pairs = []
+    for part in text.split(";"):
+        inner, sep, outer = part.partition("=")
+        if sep and inner.strip() and outer.strip():
+            pairs.append((inner.strip(), outer.strip()))
+    return pairs
 
 
 def _open_when_ready(url: str) -> None:

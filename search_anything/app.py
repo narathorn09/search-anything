@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hmac
+import re
 import json
 import os
 import secrets
@@ -143,8 +144,9 @@ def create_app(config: Config) -> FastAPI:
     db = Database(config.data_dir / "search.db")
 
     user_folders = [str(Path(f).expanduser().resolve()) for f in config.folders]
-    if config.mode == "local":
+    if config.mode == "local" and config.can_open_files:
         # Folders chosen in the UI are remembered; CLI folders are added on top.
+        # (In a container the start script decides which folders are mounted.)
         user_folders = list(dict.fromkeys([*db.get_meta("folders", []), *user_folders]))
         db.set_meta("folders", user_folders)
     # The uploads folder is always indexed, in both modes.
@@ -158,8 +160,12 @@ def create_app(config: Config) -> FastAPI:
         if not path:
             return path
         for inner, outer in config.path_map:
-            if path == inner or path.startswith(inner.rstrip("/") + "/"):
-                return outer + path[len(inner.rstrip("/")):]
+            inner = inner.rstrip("/")
+            if path == inner or path.startswith(inner + "/"):
+                rest = path[len(inner):]
+                if re.match(r"^[A-Za-z]:\\", outer):  # Windows host path
+                    rest = rest.replace("/", "\\")
+                return outer.rstrip("/\\") + rest
         return path
 
     def is_upload(path: str | None) -> bool:
@@ -213,7 +219,7 @@ def create_app(config: Config) -> FastAPI:
         }
         body = row.get("body") or ""
         if row["kind"] == "file":
-            data["path"] = row["path"]
+            data["path"] = display_path(row["path"])
             data["size"] = row["size"]
             data["mtime"] = row["mtime"]
             data["uploaded"] = is_upload(row["path"])
@@ -255,8 +261,10 @@ def create_app(config: Config) -> FastAPI:
                 {
                     "vault": {"set_up": vault.is_set_up, "unlocked": vault.is_unlocked},
                     "counts": db.counts(),
-                    "folders": [f for f in indexer.folders if f != str(upload_dir)],
-                    "can_edit_folders": config.mode == "local",
+                    "folders": [display_path(f) for f in indexer.folders if f != str(upload_dir)],
+                    "can_edit_folders": config.mode == "local" and config.can_open_files,
+                    "can_open_files": config.mode == "local" and config.can_open_files,
+                    "in_container": not config.can_open_files,
                     "can_upload": True,
                     "max_upload_mb": config.max_upload_mb,
                     "indexing": indexer.status(),
@@ -478,6 +486,8 @@ def create_app(config: Config) -> FastAPI:
         "/api/files/{item_id}/open", dependencies=[Depends(require_auth), Depends(require_local)]
     )
     def open_file(item_id: int):
+        if not config.can_open_files:
+            raise HTTPException(403, "running in a container: download the file instead")
         open_with_os(file_row(item_id)["path"])
         return {"ok": True}
 

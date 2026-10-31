@@ -316,3 +316,25 @@ def test_all_view_shows_files_before_searching(tmp_path):
     assert titles == ["newest note", "fresh-plan.md", "old-report.txt"]  # files included, newest first
     assert ids(c.get("/api/search", params={"q": "", "kind": "note"})) == ["newest note"]
     assert ids(c.get("/api/search", params={"q": "", "kind": "file"})) == ["fresh-plan.md", "old-report.txt"]
+
+
+def test_container_local_mode_maps_paths_and_downloads(tmp_path):
+    root = tmp_path / "host" / "Documents"
+    root.mkdir(parents=True)
+    (root / "plan.txt").write_text("kiwi plan")
+    c = make_client(tmp_path, folders=[str(root)], can_open_files=False,
+                    path_map=[(str(root), "C:\\Users\\me\\Documents")])
+    c.app.state.indexer.run()
+    st = c.get("/api/status").json()
+    assert st["in_container"] is True and st["can_open_files"] is False and st["can_edit_folders"] is False
+    assert st["folders"] == ["C:\\Users\\me\\Documents"]
+    r = c.get("/api/search", params={"q": "kiwi"}).json()["results"][0]
+    assert r["path"] == "C:\\Users\\me\\Documents\\plan.txt"  # the path the user knows
+    assert c.post(f"/api/files/{r['id']}/open").status_code == 403  # no desktop in a container
+    assert c.get(f"/api/files/{r['id']}/download").content == b"kiwi plan"
+
+
+def test_path_map_parsing():
+    from search_anything.__main__ import _parse_path_map
+    assert _parse_path_map("/host/Documents=/Users/me/Documents;/host/Work=D:\\Work;;bad") == [
+        ("/host/Documents", "/Users/me/Documents"), ("/host/Work", "D:\\Work")]
