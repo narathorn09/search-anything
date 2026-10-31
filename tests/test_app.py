@@ -1,3 +1,4 @@
+import time
 from pathlib import Path
 
 import pytest
@@ -172,3 +173,17 @@ def test_ui_served(tmp_path):
     c = make_client(tmp_path)
     assert "Search Anything" in c.get("/").text
     assert c.get("/static/app.js").status_code == 200
+
+
+def test_trigger_during_scan_is_not_dropped(tmp_path, docs):
+    db = Database(tmp_path / "t.db")
+    indexer = Indexer(db, [str(docs)])
+    with indexer._run_lock:  # simulate a scan in progress
+        indexer.trigger()
+        indexer.trigger()  # coalesced with the queued one
+        (docs / "late.txt").write_text("zebracorn")
+    # The queued background scan must run after the current one finishes.
+    deadline = time.time() + 5
+    while not db.search("zebracorn") and time.time() < deadline:
+        time.sleep(0.05)
+    assert [r["title"] for r in db.search("zebracorn")] == ["late.txt"]

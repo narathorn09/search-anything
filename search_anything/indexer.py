@@ -77,6 +77,8 @@ class Indexer:
         self.db = db
         self._folders = [str(Path(f).expanduser().resolve()) for f in (folders or [])]
         self._run_lock = threading.Lock()
+        self._state_lock = threading.Lock()
+        self._queued = False
         self.last_stats: IndexStats | None = None
         self.running = False
 
@@ -95,10 +97,24 @@ class Indexer:
                     continue
                 yield Path(dirpath) / name
 
+    def trigger(self) -> None:
+        """Scan in the background. If a scan is already running, one more scan
+        is queued so changes made during the current scan are not missed."""
+        with self._state_lock:
+            if self._queued:
+                return
+            self._queued = True
+        threading.Thread(target=self.run, daemon=True).start()
+
     def run(self) -> IndexStats:
-        """Incrementally index all folders. Only changed files are re-read."""
-        if not self._run_lock.acquire(blocking=False):
-            return self.last_stats or IndexStats()
+        """Incrementally index all folders (blocks while another scan runs).
+        Only changed files are re-read."""
+        with self._run_lock:
+            with self._state_lock:
+                self._queued = False
+            return self._scan()
+
+    def _scan(self) -> IndexStats:
         self.running = True
         stats = IndexStats()
         start = time.time()
@@ -134,7 +150,6 @@ class Indexer:
             stats.seconds = round(time.time() - start, 2)
             self.last_stats = stats
             self.running = False
-            self._run_lock.release()
         log.info("indexed: %s", stats)
         return stats
 

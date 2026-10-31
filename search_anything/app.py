@@ -341,7 +341,7 @@ def create_app(config: Config) -> FastAPI:
     # ------------------------------------------------------------ files
     @app.post("/api/reindex", dependencies=[Depends(require_auth)])
     def reindex():
-        threading.Thread(target=indexer.run, daemon=True).start()
+        indexer.trigger()
         return {"ok": True}
 
     @app.put("/api/folders", dependencies=[Depends(require_auth), Depends(require_local)])
@@ -352,7 +352,7 @@ def create_app(config: Config) -> FastAPI:
             raise HTTPException(400, f"folder not found: {', '.join(missing)}")
         indexer.set_folders(cleaned)
         db.set_meta("folders", indexer.folders)
-        threading.Thread(target=indexer.run, daemon=True).start()
+        indexer.trigger()
         return {"folders": indexer.folders}
 
     def file_row(item_id: int):
@@ -389,7 +389,7 @@ def create_app(config: Config) -> FastAPI:
                 while chunk := await f.read(1024 * 1024):
                     out.write(chunk)
             saved.append(target.name)
-        threading.Thread(target=indexer.run, daemon=True).start()
+        indexer.trigger()
         return {"saved": saved}
 
     # ------------------------------------------------------------- ui
