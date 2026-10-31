@@ -43,7 +43,11 @@ const icon = (name) => {
 };
 
 let prefs = loadPrefs();
-const state = { status: null, kind: "", results: [], selected: -1, detailId: null, seq: 0 };
+const state = {
+  status: null, kind: "", results: [], selected: -1, detailId: null, seq: 0,
+  // paging: what the list was searched with, total (null = still counting), more pages?
+  page: null, total: null, approx: false, hasMore: false, loadingMore: false, moreError: false,
+};
 const isSide = () => document.documentElement.dataset.detailMode === "side";
 
 // ------------------------------------------------------------------ helpers
@@ -246,34 +250,96 @@ function scheduleSearch() {
 }
 
 let searchAbort = null;
+let moreAbort = null;
+let countAbort = null;
+let countTimer = null;
+
+/** First page of a new search. Later pages load while scrolling (loadMore). */
 async function search() {
   const seq = ++state.seq;
   const q = $("#q").value.trim();
-  if (searchAbort) searchAbort.abort(); // drop the request for older keystrokes
+  for (const ctl of [searchAbort, moreAbort, countAbort]) ctl?.abort(); // drop older requests
+  clearTimeout(countTimer);
   if (!q && !prefs.recent && !state.kind) {
     // Settings → "รายการล่าสุด" is off: a blank start until the user types.
-    state.results = [];
-    state.selected = -1;
+    Object.assign(state, { results: [], selected: -1, total: 0, approx: false, hasMore: false });
     renderResults();
     hideDetail();
     return;
   }
   searchAbort = new AbortController();
-  const params = new URLSearchParams({ q, kind: state.kind, limit: prefs.resultLimit, sort: prefs.sortBy });
+  state.page = { q, kind: state.kind, sort: prefs.sortBy };
+  const params = new URLSearchParams({ ...state.page, limit: prefs.resultLimit, offset: 0 });
   try {
     const data = await api(`/api/search?${params}`, { signal: searchAbort.signal });
     if (seq !== state.seq) return; // a newer search already finished
-    state.results = data.results;
-    state.selected = data.results.length ? 0 : -1;
+    Object.assign(state, {
+      results: data.results, selected: data.results.length ? 0 : -1,
+      total: data.total, approx: data.approx, hasMore: data.has_more, loadingMore: false, moreError: false,
+    });
     renderResults();
     if (isSide() && state.selected >= 0) showDetail(state.results[0].id);
     else hideDetail();
+    if (data.total == null) scheduleCount(seq);
   } catch (e) {
     if (e.name === "AbortError") return;
     if (e.status === 401) return showLogin();
     toast(e.message);
   }
 }
+
+/** Ask for the total a moment after the user stops typing (counting can take a while). */
+function scheduleCount(seq) {
+  countTimer = setTimeout(async () => {
+    countAbort = new AbortController();
+    try {
+      const c = await api(`/api/search/count?${new URLSearchParams(state.page)}`, { signal: countAbort.signal });
+      if (seq !== state.seq) return;
+      state.total = c.total;
+      state.approx = c.approx;
+      if (!c.approx && state.results.length >= c.total) state.hasMore = false;
+      updateCount();
+      updateSentinel();
+    } catch (e) { /* aborted or failed: the list still works without a total */ }
+  }, 350);
+}
+
+/** Next page, appended to the list. Safe to call often: one request at a time. */
+async function loadMore() {
+  if (!state.hasMore || state.loadingMore || !state.page) return;
+  const seq = state.seq;
+  state.loadingMore = true;
+  state.moreError = false;
+  updateSentinel();
+  moreAbort = new AbortController();
+  const params = new URLSearchParams({ ...state.page, limit: prefs.resultLimit, offset: state.results.length });
+  try {
+    const data = await api(`/api/search?${params}`, { signal: moreAbort.signal });
+    if (seq !== state.seq) return;
+    const have = new Set(state.results.map((r) => r.id));
+    const rows = data.results.filter((r) => !have.has(r.id));
+    const start = state.results.length;
+    state.results.push(...rows);
+    state.hasMore = data.has_more && rows.length > 0;
+    if (data.total != null) { state.total = data.total; state.approx = data.approx; }
+    appendRows(rows, start);
+  } catch (e) {
+    if (e.name === "AbortError") return;
+    state.moreError = true;
+  } finally {
+    if (seq === state.seq) {
+      state.loadingMore = false;
+      updateCount();
+      updateSentinel();
+      // Still near the bottom (short pages)? Keep filling.
+      if (!state.moreError) requestAnimationFrame(() => { observer.unobserve($("#load-more")); observer.observe($("#load-more")); });
+    }
+  }
+}
+
+const observer = new IntersectionObserver((entries) => {
+  if (entries.some((e) => e.isIntersecting)) loadMore();
+}, { rootMargin: "900px 0px" }); // start loading well before the end is visible
 
 function resultMeta(r) {
   if (r.kind === "file") return [ext(r.title), fmtSize(r.size), fmtShortDate(r.mtime)];
@@ -282,13 +348,69 @@ function resultMeta(r) {
   return [fmtShortDate(r.updated_at), ...(r.tags || []).map((t) => `#${t}`)];
 }
 
-function renderResults() {
-  const ul = $("#results");
-  ul.replaceChildren();
+function rowEl(r, i, t, animate) {
+  const meta = resultMeta(r).filter(Boolean);
+  return el("li", {
+    class: `row${animate ? " reveal" : ""}${i === state.selected ? " selected" : ""}`, style: animate ? `--i:${Math.min(i, 12)}` : null,
+    onclick: () => { select(i); if (!isSide()) openDetail(); },
+    ondblclick: () => primaryAction(r),
+  },
+    tile(r.kind),
+    el("div", { class: "copy" },
+      el("div", { class: "title" }, highlight(r.title, t)),
+      meta.length ? el("div", { class: "meta" }, meta.map((m, j) => el("span", { class: j ? "dot" : "" }, highlight(m, t)))) : null,
+      r.snippet && r.kind !== "password" && t.length ? el("div", { class: "snip" }, highlight(r.snippet, t)) : null),
+    canView(r) ? el("div", { class: "row-actions" },
+      btn("ดูเนื้อหา", (e) => { e.stopPropagation(); openViewer(r); }, "secondary sm", "lines", { title: "ดูเนื้อหาพร้อมเลขบรรทัด" })) : null);
+}
+
+function updateCount() {
+  const n = state.results.length;
   const t = terms();
   const label = state.kind ? KIND_LABEL[state.kind] : "";
-  $("#result-title").textContent = !state.results.length ? "" : t.length ? "ผลการค้นหา" : label || "ล่าสุด";
-  $("#result-count").textContent = state.results.length ? `${state.results.length} รายการ` : "";
+  const fmt = (x) => Number(x).toLocaleString();
+  let title = "";
+  if (n) {
+    if (!t.length) title = label || "ล่าสุด";
+    else if (state.total == null) title = "ผลการค้นหา";
+    else title = state.approx ? `พบมากกว่า ${fmt(state.total)} รายการ` : `พบ ${fmt(state.total)} รายการ`;
+  }
+  $("#result-title").textContent = title;
+  let sub = "";
+  if (n) {
+    if (state.total == null) sub = `${fmt(n)}${state.hasMore ? "+" : ""} รายการ · กำลังนับ…`;
+    else if (state.total > n) sub = `แสดง ${fmt(n)} จาก ${state.approx ? "มากกว่า " : ""}${fmt(state.total)}`;
+    else sub = `${fmt(state.total)} รายการ`;
+  }
+  $("#result-count").textContent = sub;
+}
+
+function updateSentinel() {
+  const s = $("#load-more");
+  if (!s) return;
+  const n = state.results.length;
+  s.className = "load-more";
+  if (state.loadingMore) {
+    s.replaceChildren(el("span", { class: "spinner", "aria-hidden": "true" }), "กำลังโหลดเพิ่ม…");
+  } else if (state.moreError) {
+    s.replaceChildren("โหลดไม่สำเร็จ ", btn("ลองอีกครั้ง", () => loadMore(), "secondary sm"));
+  } else if (state.hasMore) {
+    s.replaceChildren(btn("โหลดเพิ่ม", () => loadMore(), "ghost sm")); // fallback if scrolling doesn't trigger
+  } else if (n > prefs.resultLimit) {
+    s.classList.add("end");
+    s.replaceChildren(`แสดงครบ ${n.toLocaleString()} รายการแล้ว`);
+  } else {
+    s.replaceChildren();
+  }
+}
+
+function renderResults() {
+  const ul = $("#results");
+  observer.disconnect();
+  ul.replaceChildren();
+  window.scrollTo({ top: 0 });
+  const t = terms();
+  updateCount();
   if (!state.results.length) {
     const fresh = !t.length;
     ul.append(el("li", { class: "empty reveal" },
@@ -296,29 +418,32 @@ function renderResults() {
       fresh ? "หรือกด เพิ่ม เพื่ออัปโหลดไฟล์ จดโน้ต เก็บลิงก์ หรือรหัสผ่าน" : "ลองคำอื่น หรือคำที่ยาวขึ้น"));
     return;
   }
-  state.results.forEach((r, i) => {
-    const meta = resultMeta(r).filter(Boolean);
-    const li = el("li", {
-      class: `row reveal${i === state.selected ? " selected" : ""}`, style: `--i:${Math.min(i, 12)}`,
-      onclick: () => { select(i); if (!isSide()) openDetail(); },
-      ondblclick: () => primaryAction(r),
-    },
-      tile(r.kind),
-      el("div", { class: "copy" },
-        el("div", { class: "title" }, highlight(r.title, t)),
-        meta.length ? el("div", { class: "meta" }, meta.map((m, j) => el("span", { class: j ? "dot" : "" }, highlight(m, t)))) : null,
-        r.snippet && r.kind !== "password" && t.length ? el("div", { class: "snip" }, highlight(r.snippet, t)) : null),
-      canView(r) ? el("div", { class: "row-actions" },
-        btn("ดูเนื้อหา", (e) => { e.stopPropagation(); openViewer(r); }, "secondary sm", "lines", { title: "ดูเนื้อหาพร้อมเลขบรรทัด" })) : null);
-    ul.append(li);
-  });
+  const frag = document.createDocumentFragment();
+  state.results.forEach((r, i) => frag.append(rowEl(r, i, t, true)));
+  const sentinel = el("li", { id: "load-more", class: "load-more" });
+  frag.append(sentinel);
+  ul.append(frag);
+  updateSentinel();
+  observer.observe(sentinel);
+}
+
+/** Add rows before the "load more" marker without touching existing rows. */
+function appendRows(rows, start) {
+  if (!rows.length) return;
+  const t = terms();
+  const frag = document.createDocumentFragment();
+  rows.forEach((r, k) => frag.append(rowEl(r, start + k, t, false)));
+  $("#results").insertBefore(frag, $("#load-more"));
 }
 
 function select(i) {
   if (i < 0 || i >= state.results.length) return;
+  const rows = $("#results").querySelectorAll("li.row");
+  rows[state.selected]?.classList.remove("selected");
   state.selected = i;
-  [...$("#results").children].forEach((li, j) => li.classList.toggle("selected", i === j));
-  $("#results").children[i].scrollIntoView({ block: "nearest" });
+  rows[i].classList.add("selected");
+  rows[i].scrollIntoView({ block: "nearest" });
+  if (i >= state.results.length - 15) loadMore(); // keyboard users reach the end too: fetch early
   // Side column follows the selection; a closed drawer stays closed.
   if (isSide() || $("#detail").classList.contains("open")) showDetail(state.results[i].id);
 }
@@ -976,7 +1101,7 @@ function pageBehavior() {
       pref("กด Enter", "Shift+Enter = ดูรายละเอียด/เปิดทันที", segmented([["open", "เปิดทันที"], ["details", "ดูรายละเอียด"], ["view", "ดูเนื้อหา"]], p.enterAction, (v) => setPref("enterAction", v))),
       pref("เรียงผลลัพธ์", "เปลี่ยนได้จากปุ่มเรียงลำดับเหนือผลลัพธ์ด้วย", el("select", { class: "select", onchange: (e) => setPref("sortBy", e.target.value) },
         SORT_OPTIONS.map(([v, label]) => el("option", { value: v, selected: v === p.sortBy ? "" : null }, label)))),
-      pref("จำนวนผลลัพธ์สูงสุด", null, segmented([[20, "20"], [50, "50"], [100, "100"]], p.resultLimit, (v) => setPref("resultLimit", v))),
+      pref("โหลดผลลัพธ์ครั้งละ", "เลื่อนลงเพื่อโหลดเพิ่มเอง", segmented([[20, "20"], [50, "50"], [100, "100"]], p.resultLimit, (v) => setPref("resultLimit", v))),
     ]),
     group("คู่มือ", [
       pref("คู่มือการใช้งาน", "การ์ดอธิบายทุกเมนูพร้อมวิดีโอสั้น (กด ? ได้ทุกเมื่อ)", btn("เปิดคู่มือ", () => openGuide(), "secondary sm", "lines")),

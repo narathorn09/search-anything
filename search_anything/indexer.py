@@ -224,6 +224,7 @@ class Indexer:
             self.last_stats = stats
             self.running = False
             self._brake = None
+            self.db.invalidate()  # cached result lists are out of date now
             self.progress = {"phase": "idle"}
         log.info("indexed: %s", stats)
         return stats

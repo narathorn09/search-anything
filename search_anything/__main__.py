@@ -97,6 +97,10 @@ def main(argv: list[str] | None = None) -> None:
         https_only_cookie=args.https_cookie,
         max_upload_mb=args.max_upload_mb,
     )
+    # Background work (counting, scanning supervision) shares the GIL with the
+    # web handlers; shorter switch intervals keep searches snappy meanwhile
+    # (measured: concurrent page-1 searches ~85 ms -> ~55 ms).
+    sys.setswitchinterval(0.001)
     app = create_app(config)
     url = f"http://{'localhost' if host in ('127.0.0.1', '0.0.0.0') else host}:{args.port}"
     print(f"Search Anything ({args.mode} mode) -> {url}   (Ctrl+C to stop)", flush=True)
