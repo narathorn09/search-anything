@@ -1,0 +1,108 @@
+# Search Anything on Kubernetes / Rancher.
+# Rancher: Cluster → "Import YAML" (top right) → choose the namespace → paste this file.
+#
+# Change before importing (search for "CHANGE"):
+#   1. image          – your company registry
+#   2. SA_PASSWORD    – login password
+#   3. host           – the address people will open
+#   4. storageClassName – block storage of your cluster (ask IT; NOT nfs)
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: search-anything-data
+spec:
+  accessModes: ["ReadWriteOnce"]
+  # storageClassName: longhorn        # CHANGE (optional): leave out to use the cluster default
+  resources:
+    requests:
+      storage: 10Gi                     # notes, passwords, uploads and the search index
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: search-anything-secret
+type: Opaque
+stringData:
+  SA_PASSWORD: "change-me-please"       # CHANGE: login password
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: search-anything
+  labels: { app: search-anything }
+spec:
+  replicas: 1                           # keep 1: one SQLite database, one writer
+  strategy:
+    type: Recreate                      # stop the old pod before starting the new one (the volume is single-node)
+  selector:
+    matchLabels: { app: search-anything }
+  template:
+    metadata:
+      labels: { app: search-anything }
+    spec:
+      securityContext:
+        fsGroup: 10001                  # lets the app user write to the volume
+      containers:
+        - name: search-anything
+          image: registry.example.com/search-anything:1.0   # CHANGE: your registry
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8765
+          env:
+            - name: SA_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: search-anything-secret, key: SA_PASSWORD }
+            - name: SA_HTTPS_COOKIE     # the Ingress below serves HTTPS
+              value: "1"
+          resources:
+            requests: { cpu: 250m, memory: 512Mi }
+            limits:   { cpu: "2",  memory: 1536Mi }   # the app keeps its scanner below this
+          readinessProbe:
+            httpGet: { path: /api/status, port: http }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /api/status, port: http }
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            failureThreshold: 6
+          volumeMounts:
+            - name: data
+              mountPath: /data          # everything the app stores
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: search-anything-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: search-anything
+spec:
+  selector: { app: search-anything }
+  ports:
+    - name: http
+      port: 8765
+      targetPort: http
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: search-anything
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "200m"   # allow uploads up to 200 MB
+spec:
+  rules:
+    - host: search.example.com          # CHANGE: your address
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: search-anything
+                port: { name: http }
+  # tls:                                # CHANGE (optional): HTTPS certificate secret
+  #   - hosts: [search.example.com]
+  #     secretName: search-anything-tls
