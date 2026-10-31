@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Search Anything</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <!-- Login (server mode) -->
+  <section id="login" class="center hidden">
+    <form id="login-form" class="card narrow">
+      <h1>Search Anything</h1>
+      <p class="muted">เข้าสู่ระบบเพื่อค้นหา</p>
+      <input type="password" id="login-password" placeholder="รหัสผ่าน" autocomplete="current-password" required>
+      <button type="submit" class="primary">เข้าสู่ระบบ</button>
+      <p id="login-error" class="error"></p>
+    </form>
+  </section>
+
+  <!-- Main app -->
+  <section id="main" class="hidden">
+    <header>
+      <div class="search-row">
+        <input id="q" type="search" placeholder="พิมพ์เพื่อค้นหาทุกอย่าง… ไฟล์ เนื้อหา โน้ต ลิงก์ รหัสผ่าน" autocomplete="off" spellcheck="false">
+        <button id="vault-btn" class="icon" title="ตู้รหัสผ่าน">🔒</button>
+        <button id="settings-btn" class="icon" title="ตั้งค่า">⚙️</button>
+      </div>
+      <div class="toolbar">
+        <div id="filters" class="chips">
+          <button data-kind="" class="chip active">ทั้งหมด <span></span></button>
+          <button data-kind="file" class="chip">📄 ไฟล์ <span></span></button>
+          <button data-kind="note" class="chip">📝 โน้ต <span></span></button>
+          <button data-kind="bookmark" class="chip">🔗 ลิงก์ <span></span></button>
+          <button data-kind="password" class="chip">🔑 รหัสผ่าน <span></span></button>
+        </div>
+        <div class="chips">
+          <button class="chip add" data-new="note">+ โน้ต</button>
+          <button class="chip add" data-new="bookmark">+ ลิงก์</button>
+          <button class="chip add" data-new="password">+ รหัสผ่าน</button>
+        </div>
+      </div>
+    </header>
+    <div class="body">
+      <ul id="results"></ul>
+      <aside id="detail" class="hidden"></aside>
+    </div>
+    <footer class="muted">
+      <span><kbd>/</kbd> ค้นหา · <kbd>↑</kbd><kbd>↓</kbd> เลือก · <kbd>Enter</kbd> เปิด/คัดลอก · <kbd>Esc</kbd> ล้าง</span>
+      <span id="status-line"></span>
+    </footer>
+  </section>
+
+  <!-- Generic modal -->
+  <dialog id="modal"><form method="dialog" id="modal-form" class="card"></form></dialog>
+  <div id="toast" class="hidden"></div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
