@@ -1,0 +1,401 @@
+"""FastAPI application: one search API over files, notes, bookmarks and passwords."""
+
+from __future__ import annotations
+
+import hmac
+import json
+import os
+import secrets
+import subprocess
+import sys
+import threading
+import time
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Literal
+
+from fastapi import Depends, FastAPI, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
+from starlette.middleware.sessions import SessionMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
+
+from .db import Database
+from .indexer import Indexer
+from .vault import Vault, VaultError, VaultLocked
+
+STATIC_DIR = Path(__file__).parent / "static"
+LOCAL_HOSTS = ["localhost", "127.0.0.1"]
+
+
+@dataclass
+class Config:
+    mode: Literal["local", "server"] = "local"
+    data_dir: Path = Path("data")
+    folders: list[str] = field(default_factory=list)
+    password: str | None = None  # login password, required in server mode
+    reindex_interval: int = 300
+    auto_lock_seconds: int = 900
+    allowed_hosts: list[str] | None = None
+    https_only_cookie: bool = False
+    scrypt_n: int = 2**15
+    background_indexing: bool = True
+
+
+# ----------------------------------------------------------------- schemas
+class LoginIn(BaseModel):
+    password: str
+
+
+class MasterIn(BaseModel):
+    master_password: str
+
+
+class ItemIn(BaseModel):
+    kind: Literal["note", "bookmark", "password"]
+    title: str = Field(min_length=1, max_length=500)
+    content: str = ""  # note text / bookmark description / password notes
+    url: str = ""
+    username: str = ""
+    password: str | None = None  # plaintext secret; only for kind=password
+    tags: list[str] = []
+
+
+class FoldersIn(BaseModel):
+    folders: list[str]
+
+
+# ----------------------------------------------------------------- helpers
+def build_body(kind: str, content: str, url: str, username: str, tags: list[str]) -> str:
+    """Searchable text for an item. Never includes secrets."""
+    parts = {
+        "note": [content],
+        "bookmark": [url, content],
+        "password": [username, url, content],
+    }[kind]
+    if tags:
+        parts.append(" ".join(f"#{t}" for t in tags))
+    return "\n".join(p for p in parts if p)
+
+
+def make_snippet(text: str, terms: list[str], width: int = 160) -> str:
+    if not text:
+        return ""
+    lower = text.lower()
+    positions = [lower.find(t.lower()) for t in terms]
+    positions = [p for p in positions if p >= 0]
+    if not positions:
+        return text[:width].replace("\n", " ")
+    pos = min(positions)
+    start = max(0, pos - width // 3)
+    end = min(len(text), start + width)
+    snippet = text[start:end].replace("\n", " ")
+    return ("…" if start > 0 else "") + snippet + ("…" if end < len(text) else "")
+
+
+def open_with_os(path: str) -> None:
+    if sys.platform.startswith("win"):
+        os.startfile(path)  # type: ignore[attr-defined]
+    elif sys.platform == "darwin":
+        subprocess.Popen(["open", path])
+    else:
+        subprocess.Popen(["xdg-open", path])
+
+
+def load_secret_key(data_dir: Path) -> str:
+    key_file = data_dir / "session.key"
+    if key_file.exists():
+        return key_file.read_text().strip()
+    key = secrets.token_hex(32)
+    key_file.write_text(key)
+    try:
+        key_file.chmod(0o600)
+    except OSError:
+        pass
+    return key
+
+
+# --------------------------------------------------------------------- app
+def create_app(config: Config) -> FastAPI:
+    if config.mode == "server" and not config.password:
+        raise ValueError("server mode requires a login password (SA_PASSWORD)")
+
+    config.data_dir.mkdir(parents=True, exist_ok=True)
+    upload_dir = config.data_dir / "uploads"
+    db = Database(config.data_dir / "search.db")
+
+    folders = config.folders
+    if config.mode == "local":
+        # Folders chosen in the UI are remembered; CLI folders are added on top.
+        saved = db.get_meta("folders", [])
+        folders = list(dict.fromkeys([*saved, *config.folders]))
+    else:
+        upload_dir.mkdir(exist_ok=True)
+        folders = list(dict.fromkeys([*config.folders, str(upload_dir)]))
+    indexer = Indexer(db, folders)
+    if config.mode == "local":
+        db.set_meta("folders", indexer.folders)
+    vault = Vault(db, config.auto_lock_seconds, config.scrypt_n)
+
+    app = FastAPI(title="Search Anything", docs_url=None, redoc_url=None)
+    app.state.db, app.state.indexer, app.state.vault, app.state.config = db, indexer, vault, config
+
+    app.add_middleware(
+        SessionMiddleware,
+        secret_key=load_secret_key(config.data_dir),
+        session_cookie="sa_session",
+        max_age=7 * 24 * 3600,
+        same_site="strict",
+        https_only=config.https_only_cookie,
+    )
+    allowed_hosts = config.allowed_hosts or (LOCAL_HOSTS if config.mode == "local" else ["*"])
+    # In local mode this blocks DNS-rebinding attacks from malicious websites.
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts)
+
+    if config.background_indexing and indexer.folders:
+        indexer.start_background(config.reindex_interval)
+
+    failed_logins: dict[str, list[float]] = {}
+
+    def require_auth(request: Request) -> None:
+        if config.mode == "server" and not request.session.get("auth"):
+            raise HTTPException(401, "login required")
+
+    def require_local() -> None:
+        if config.mode != "local":
+            raise HTTPException(403, "only available in local mode")
+
+    def get_or_404(item_id: int):
+        row = db.get_item(item_id)
+        if row is None:
+            raise HTTPException(404, "not found")
+        return row
+
+    def serialize(row, terms: list[str] | None = None, full: bool = False) -> dict:
+        extra = json.loads(row["extra"] or "{}")
+        data = {
+            "id": row["id"],
+            "kind": row["kind"],
+            "title": row["title"],
+            "updated_at": row["updated_at"],
+            "url": extra.get("url", ""),
+            "username": extra.get("username", ""),
+            "tags": extra.get("tags", []),
+        }
+        body = row["body"]
+        if row["kind"] == "file":
+            data["path"] = row["path"]
+            data["size"] = row["size"]
+            data["mtime"] = row["mtime"]
+            body = body.split("\n", 1)[1] if "\n" in body else ""
+        if terms is not None:
+            data["snippet"] = make_snippet(body, terms)
+        if full:
+            data["content"] = extra.get("content", body) if row["kind"] != "file" else body[:20000]
+        return data
+
+    # ------------------------------------------------------------- auth
+    @app.post("/api/login")
+    def login(data: LoginIn, request: Request):
+        if config.mode != "server":
+            return {"ok": True}
+        ip = request.client.host if request.client else "?"
+        now = time.time()
+        recent = [t for t in failed_logins.get(ip, []) if now - t < 300]
+        if len(recent) >= 10:
+            raise HTTPException(429, "too many attempts, try again later")
+        if not hmac.compare_digest(data.password.encode(), (config.password or "").encode()):
+            failed_logins[ip] = [*recent, now]
+            time.sleep(0.5)
+            raise HTTPException(401, "wrong password")
+        failed_logins.pop(ip, None)
+        request.session["auth"] = True
+        return {"ok": True}
+
+    @app.post("/api/logout")
+    def logout(request: Request):
+        request.session.clear()
+        return {"ok": True}
+
+    @app.get("/api/status")
+    def status(request: Request):
+        authed = config.mode == "local" or bool(request.session.get("auth"))
+        result = {"mode": config.mode, "authenticated": authed}
+        if authed:
+            stats = indexer.last_stats
+            result.update(
+                {
+                    "vault": {"set_up": vault.is_set_up, "unlocked": vault.is_unlocked},
+                    "counts": db.counts(),
+                    "folders": indexer.folders,
+                    "can_edit_folders": config.mode == "local",
+                    "can_upload": config.mode == "server",
+                    "indexing": {
+                        "running": indexer.running,
+                        "last": stats.__dict__ if stats else None,
+                    },
+                }
+            )
+        return result
+
+    # ----------------------------------------------------------- search
+    @app.get("/api/search", dependencies=[Depends(require_auth)])
+    def search(q: str = "", kind: str | None = None, limit: int = 50):
+        if kind in ("", "all"):
+            kind = None
+        limit = max(1, min(limit, 200))
+        terms = q.split()
+        rows = db.search(q, kind, limit)
+        return {"query": q, "results": [serialize(r, terms) for r in rows]}
+
+    # ------------------------------------------------------------ items
+    @app.get("/api/items/{item_id}", dependencies=[Depends(require_auth)])
+    def get_item(item_id: int):
+        return serialize(get_or_404(item_id), full=True)
+
+    def save_fields(data: ItemIn) -> dict:
+        tags = [t.strip().lstrip("#") for t in data.tags if t.strip()]
+        extra = {"content": data.content, "tags": tags}
+        if data.kind in ("bookmark", "password"):
+            extra["url"] = data.url
+        if data.kind == "password":
+            extra["username"] = data.username
+        return {
+            "title": data.title.strip(),
+            "body": build_body(data.kind, data.content, data.url, data.username, tags),
+            "extra": extra,
+        }
+
+    @app.post("/api/items", dependencies=[Depends(require_auth)])
+    def create_item(data: ItemIn):
+        secret = None
+        if data.kind == "password":
+            try:
+                secret = vault.encrypt(data.password or "")
+            except VaultLocked:
+                raise HTTPException(423, "vault is locked")
+        fields = save_fields(data)
+        item_id = db.add_item(data.kind, fields["title"], fields["body"], fields["extra"], secret)
+        return serialize(db.get_item(item_id), full=True)
+
+    @app.put("/api/items/{item_id}", dependencies=[Depends(require_auth)])
+    def update_item(item_id: int, data: ItemIn):
+        row = get_or_404(item_id)
+        if row["kind"] != data.kind or row["kind"] == "file":
+            raise HTTPException(400, "cannot change this item")
+        fields = save_fields(data)
+        if data.kind == "password" and data.password is not None:
+            try:
+                fields["secret"] = vault.encrypt(data.password)
+            except VaultLocked:
+                raise HTTPException(423, "vault is locked")
+        db.update_item(item_id, **fields)
+        return serialize(db.get_item(item_id), full=True)
+
+    @app.delete("/api/items/{item_id}", dependencies=[Depends(require_auth)])
+    def delete_item(item_id: int):
+        row = get_or_404(item_id)
+        if row["kind"] == "file":
+            raise HTTPException(400, "files are removed by deleting them from disk")
+        db.delete_item(item_id)
+        return {"ok": True}
+
+    @app.post("/api/items/{item_id}/reveal", dependencies=[Depends(require_auth)])
+    def reveal(item_id: int):
+        row = get_or_404(item_id)
+        if row["kind"] != "password" or row["secret"] is None:
+            raise HTTPException(400, "not a password item")
+        try:
+            return {"password": vault.decrypt(row["secret"])}
+        except VaultLocked:
+            raise HTTPException(423, "vault is locked")
+        except VaultError as exc:
+            raise HTTPException(500, str(exc))
+
+    # ------------------------------------------------------------ vault
+    @app.post("/api/vault/setup", dependencies=[Depends(require_auth)])
+    def vault_setup(data: MasterIn):
+        try:
+            vault.setup(data.master_password)
+        except VaultError as exc:
+            raise HTTPException(400, str(exc))
+        return {"ok": True}
+
+    @app.post("/api/vault/unlock", dependencies=[Depends(require_auth)])
+    def vault_unlock(data: MasterIn):
+        try:
+            ok = vault.unlock(data.master_password)
+        except VaultError as exc:
+            raise HTTPException(400, str(exc))
+        if not ok:
+            time.sleep(0.5)
+            raise HTTPException(401, "wrong master password")
+        return {"ok": True}
+
+    @app.post("/api/vault/lock", dependencies=[Depends(require_auth)])
+    def vault_lock():
+        vault.lock()
+        return {"ok": True}
+
+    # ------------------------------------------------------------ files
+    @app.post("/api/reindex", dependencies=[Depends(require_auth)])
+    def reindex():
+        indexer.trigger()
+        return {"ok": True}
+
+    @app.put("/api/folders", dependencies=[Depends(require_auth), Depends(require_local)])
+    def set_folders(data: FoldersIn):
+        cleaned = [f.strip() for f in data.folders if f.strip()]
+        missing = [f for f in cleaned if not Path(f).expanduser().is_dir()]
+        if missing:
+            raise HTTPException(400, f"folder not found: {', '.join(missing)}")
+        indexer.set_folders(cleaned)
+        db.set_meta("folders", indexer.folders)
+        indexer.trigger()
+        return {"folders": indexer.folders}
+
+    def file_row(item_id: int):
+        row = get_or_404(item_id)
+        if row["kind"] != "file" or not Path(row["path"]).is_file():
+            raise HTTPException(404, "file not found")
+        return row
+
+    @app.post(
+        "/api/files/{item_id}/open", dependencies=[Depends(require_auth), Depends(require_local)]
+    )
+    def open_file(item_id: int):
+        open_with_os(file_row(item_id)["path"])
+        return {"ok": True}
+
+    @app.get("/api/files/{item_id}/download", dependencies=[Depends(require_auth)])
+    def download_file(item_id: int):
+        row = file_row(item_id)
+        return FileResponse(row["path"], filename=row["title"])
+
+    @app.post("/api/upload", dependencies=[Depends(require_auth)])
+    async def upload(files: list[UploadFile]):
+        if config.mode != "server":
+            raise HTTPException(403, "only available in server mode")
+        saved = []
+        for f in files:
+            name = Path(f.filename or "upload").name.lstrip(".") or "upload"
+            target = upload_dir / name
+            stem, suffix, n = target.stem, target.suffix, 1
+            while target.exists():
+                target = upload_dir / f"{stem} ({n}){suffix}"
+                n += 1
+            with target.open("wb") as out:
+                while chunk := await f.read(1024 * 1024):
+                    out.write(chunk)
+            saved.append(target.name)
+        indexer.trigger()
+        return {"saved": saved}
+
+    # ------------------------------------------------------------- ui
+    @app.get("/")
+    def index():
+        return FileResponse(STATIC_DIR / "index.html")
+
+    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+    return app

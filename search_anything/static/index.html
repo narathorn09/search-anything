@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Search Anything</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <!-- Login (server mode) -->
+  <section id="login" class="center hidden">
+    <form id="login-form" class="panel narrow reveal">
+      <h1 class="display">Search Anything</h1>
+      <p class="secondary">เข้าสู่ระบบเพื่อค้นหา</p>
+      <div class="input"><input type="password" id="login-password" placeholder="รหัสผ่าน" autocomplete="current-password" required></div>
+      <button type="submit" class="btn primary lg block">เข้าสู่ระบบ</button>
+      <p id="login-error" class="error"></p>
+    </form>
+  </section>
+
+  <!-- Main app -->
+  <section id="main" class="hidden">
+    <nav id="filters" class="rail" aria-label="ประเภท">
+      <button data-kind="" class="rail-item active"><span class="label">ทั้งหมด</span><span class="count"></span></button>
+      <button data-kind="file" class="rail-item"><span class="label">ไฟล์</span><span class="count"></span></button>
+      <button data-kind="note" class="rail-item"><span class="label">โน้ต</span><span class="count"></span></button>
+      <button data-kind="bookmark" class="rail-item"><span class="label">ลิงก์</span><span class="count"></span></button>
+      <button data-kind="password" class="rail-item"><span class="label">รหัสผ่าน</span><span class="count"></span></button>
+    </nav>
+
+    <div class="frame">
+      <div class="frame-inner">
+        <header>
+          <div class="search-row">
+            <label class="input search">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+              <input id="q" type="search" placeholder="ค้นหาทุกอย่าง… ไฟล์ เนื้อหา โน้ต ลิงก์ รหัสผ่าน" autocomplete="off" spellcheck="false">
+              <kbd class="hint">/</kbd>
+            </label>
+            <button id="vault-btn" class="btn outline icon-only xl" title="ตู้รหัสผ่าน"></button>
+            <button id="settings-btn" class="btn outline icon-only xl" title="ตั้งค่า">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
+            </button>
+          </div>
+          <div class="subbar">
+            <div class="add-row">
+              <button class="btn secondary sm" data-new="note">+ โน้ต</button>
+              <button class="btn secondary sm" data-new="bookmark">+ ลิงก์</button>
+              <button class="btn secondary sm" data-new="password">+ รหัสผ่าน</button>
+            </div>
+          </div>
+        </header>
+
+        <div class="body">
+          <section class="list-col">
+            <div class="col-head"><span id="result-title">ล่าสุด</span><span id="result-count" class="secondary"></span></div>
+            <ul id="results"></ul>
+          </section>
+          <aside id="detail" class="hidden"></aside>
+        </div>
+      </div>
+    </div>
+
+    <footer class="secondary">
+      <span><kbd>/</kbd> ค้นหา · <kbd>↑</kbd><kbd>↓</kbd> เลือก · <kbd>Enter</kbd> เปิด/คัดลอก · <kbd>Esc</kbd> ล้าง</span>
+      <span id="status-line"></span>
+    </footer>
+  </section>
+
+  <!-- Generic modal -->
+  <dialog id="modal"><form method="dialog" id="modal-form" class="panel"></form></dialog>
+  <div id="toast" class="hidden"></div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
