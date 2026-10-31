@@ -1,8 +1,28 @@
 "use strict";
 
 const $ = (sel) => document.querySelector(sel);
-const KIND_ICON = { file: "📄", note: "📝", bookmark: "🔗", password: "🔑" };
 const KIND_LABEL = { file: "ไฟล์", note: "โน้ต", bookmark: "ลิงก์", password: "รหัสผ่าน" };
+
+// Simple stroke icons (24×24), drawn for this app.
+const ICONS = {
+  file: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/>',
+  note: '<path d="M5 4h14v11l-5 5H5z"/><path d="M14 20v-5h5M9 9h6M9 12.5h4"/>',
+  bookmark: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
+  password: '<circle cx="8" cy="15" r="4"/><path d="m11 12 8-8M16 7l2 2M14 9l2 2"/>',
+  lock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
+  unlock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 7.5-2"/>',
+  copy: '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h8"/>',
+  eye: '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/>',
+  open: '<path d="M14 4h6v6M20 4l-9 9M18 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4"/>',
+};
+const icon = (name) => {
+  const s = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  s.setAttribute("viewBox", "0 0 24 24");
+  s.setAttribute("class", "icon");
+  s.setAttribute("aria-hidden", "true");
+  s.innerHTML = ICONS[name]; // static, trusted markup
+  return s;
+};
 
 const state = { status: null, kind: "", results: [], selected: -1, detail: null, seq: 0 };
 
@@ -28,8 +48,9 @@ function el(tag, attrs = {}, ...children) {
   const node = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs)) {
     if (k === "class") node.className = v;
+    else if (k === "style") node.style.cssText = v;
     else if (k.startsWith("on")) node.addEventListener(k.slice(2), v);
-    else if (v !== undefined && v !== null) node.setAttribute(k, v);
+    else if (v !== undefined && v !== null && v !== false) node.setAttribute(k, v);
   }
   for (const c of children.flat()) {
     if (c === null || c === undefined || c === false) continue;
@@ -80,20 +101,26 @@ function fmtSize(n) {
   while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
   return `${n.toFixed(i ? 1 : 0)} ${u[i]}`;
 }
-const fmtDate = (ts) => (ts ? new Date(ts * 1000).toLocaleString("th-TH") : "");
+const fmtDate = (ts) => (ts ? new Date(ts * 1000).toLocaleString("th-TH", { dateStyle: "medium", timeStyle: "short" }) : "");
+const fmtShortDate = (ts) => (ts ? new Date(ts * 1000).toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "2-digit" }) : "");
 const terms = () => $("#q").value.trim().split(/\s+/).filter(Boolean);
 const safeUrl = (u) => (/^(https?|ftp):\/\//i.test(u) ? u : /^[\w.-]+\.[a-z]{2,}/i.test(u) ? `https://${u}` : null);
+const ext = (name) => { const m = /\.([^.\/]+)$/.exec(name || ""); return m ? m[1].toUpperCase() : "—"; };
+const tile = (kind) => el("div", { class: `tile ${kind}` }, icon(kind));
+const btn = (label, onclick, cls = "secondary", iconName = null, attrs = {}) =>
+  el("button", { type: "button", class: `btn ${cls}`, onclick, ...attrs }, iconName ? icon(iconName) : null, label);
 
 // ------------------------------------------------------------------- modal
 /**
  * Show a form dialog. On submit, `action(values)` runs; if it throws, the error
  * is shown and the dialog stays open. Resolves with action's result, or null if cancelled.
  */
-function modalLoop(title, fields, action, { submit = "บันทึก" } = {}) {
+function modalLoop(title, fields, action, { submit = "บันทึก", note = null } = {}) {
   return new Promise((resolve) => {
     const dlg = $("#modal");
     const form = $("#modal-form");
     form.replaceChildren(el("h2", {}, title));
+    if (note) form.append(el("p", { class: "note" }, note));
     const inputs = {};
     for (const f of fields) {
       const input = f.type === "textarea"
@@ -101,23 +128,25 @@ function modalLoop(title, fields, action, { submit = "บันทึก" } = {}
         : el("input", { name: f.name, type: f.type || "text", placeholder: f.placeholder || "", value: f.value || "", autocomplete: f.autocomplete || "off" });
       input.required = !!f.required;
       inputs[f.name] = input;
-      const row = f.generate
-        ? el("div", { class: "row" }, input, el("button", { type: "button", onclick: () => { input.value = genPassword(); input.type = "text"; } }, "สุ่ม"))
-        : input;
-      form.append(el("div", { class: "field" }, el("label", {}, f.label), row));
+      const box = el("div", { class: "input" }, input,
+        f.generate ? btn("สุ่ม", () => { input.value = genPassword(); input.type = "text"; }, "ghost sm") : null);
+      form.append(el("div", { class: "field" }, el("label", {}, f.label), box));
     }
     const error = el("p", { class: "error" });
     let done = false;
     const finish = (value) => { if (!done) { done = true; resolve(value); } };
-    form.append(error, el("div", { class: "row" },
-      el("button", { type: "submit", class: "primary" }, submit),
-      el("button", { type: "button", onclick: () => dlg.close() }, "ยกเลิก")));
+    form.append(error, el("div", { class: "actions-row" },
+      btn("ยกเลิก", () => dlg.close(), "ghost"),
+      el("button", { type: "submit", class: "btn primary" }, submit)));
     form.onsubmit = async (e) => {
       e.preventDefault();
       const values = Object.fromEntries(Object.entries(inputs).map(([k, v]) => [k, v.value]));
       try {
         const out = await action(values);
-        finish(out);
+        // Resolve only after this dialog's own async "close" event has fired,
+        // so it can't leak into a dialog opened right after (e.g. unlock → form).
+        dlg.onclose = null;
+        dlg.addEventListener("close", () => finish(out), { once: true });
         dlg.close();
       } catch (err) {
         error.textContent = err.message;
@@ -144,13 +173,13 @@ async function ensureUnlocked() {
   if (v.unlocked) return true;
   if (!v.set_up) {
     const ok = await modalLoop("ตั้ง Master Password", [
-      { name: "p1", label: "Master password (อย่างน้อย 8 ตัว) — ถ้าลืมจะกู้รหัสผ่านที่เก็บไว้ไม่ได้", type: "password", required: true, autocomplete: "new-password" },
+      { name: "p1", label: "Master password (อย่างน้อย 8 ตัว)", type: "password", required: true, autocomplete: "new-password" },
       { name: "p2", label: "ยืนยันอีกครั้ง", type: "password", required: true, autocomplete: "new-password" },
     ], async (v) => {
       if (v.p1 !== v.p2) throw new Error("รหัสผ่านไม่ตรงกัน");
       await api("/api/vault/setup", { method: "POST", body: { master_password: v.p1 } });
       return true;
-    }, { submit: "ตั้งค่า" });
+    }, { submit: "ตั้งค่า", note: "ใช้ปลดล็อกตู้รหัสผ่าน ถ้าลืมจะกู้รหัสผ่านที่เก็บไว้ไม่ได้" });
     await refreshStatus();
     return !!ok;
   }
@@ -196,7 +225,7 @@ async function search() {
     state.results = data.results;
     state.selected = data.results.length ? 0 : -1;
     renderResults();
-    if (state.selected >= 0) showDetail(state.results[0].id, false);
+    if (state.selected >= 0) showDetail(state.results[0].id);
     else hideDetail();
   } catch (e) {
     if (e.status === 401) return showLogin();
@@ -204,20 +233,37 @@ async function search() {
   }
 }
 
+function resultMeta(r) {
+  if (r.kind === "file") return [ext(r.title), fmtSize(r.size), fmtShortDate(r.mtime)];
+  if (r.kind === "password") return [r.username, r.url];
+  if (r.kind === "bookmark") return [r.url, ...(r.tags || []).map((t) => `#${t}`)];
+  return [fmtShortDate(r.updated_at), ...(r.tags || []).map((t) => `#${t}`)];
+}
+
 function renderResults() {
   const ul = $("#results");
   ul.replaceChildren();
   const t = terms();
+  const label = state.kind ? KIND_LABEL[state.kind] : "ทั้งหมด";
+  $("#result-title").textContent = t.length ? "ผลการค้นหา" : state.kind ? label : "ล่าสุด";
+  $("#result-count").textContent = state.results.length ? `${state.results.length} รายการ` : "";
   if (!state.results.length) {
-    ul.append(el("li", { class: "empty" }, t.length ? "ไม่พบผลลัพธ์" : "ยังไม่มีข้อมูล — เพิ่มโน้ต ลิงก์ รหัสผ่าน หรือเลือกโฟลเดอร์ใน ⚙️"));
+    ul.append(el("li", { class: "empty reveal" },
+      el("strong", {}, t.length ? "ไม่พบผลลัพธ์" : "ยังไม่มีข้อมูล"),
+      t.length ? "ลองคำอื่น หรือเปลี่ยนประเภททางซ้าย" : "เพิ่มโน้ต ลิงก์ รหัสผ่าน หรือเลือกโฟลเดอร์ที่ปุ่มตั้งค่า"));
     return;
   }
   state.results.forEach((r, i) => {
-    const sub = r.kind === "file" ? r.path : r.kind === "password" ? [r.username, r.url].filter(Boolean).join(" · ") : r.kind === "bookmark" ? r.url : "";
-    const li = el("li", { class: i === state.selected ? "selected" : "", onclick: () => select(i), ondblclick: () => primaryAction(r) },
-      el("div", { class: "head" }, el("span", { title: KIND_LABEL[r.kind] }, KIND_ICON[r.kind]), el("span", { class: "title" }, highlight(r.title, t))),
-      sub ? el("div", { class: "sub" }, highlight(sub, t)) : null,
-      r.snippet && r.kind !== "password" ? el("div", { class: "snip" }, highlight(r.snippet, t)) : null);
+    const meta = resultMeta(r).filter(Boolean);
+    const li = el("li", {
+      class: `row reveal${i === state.selected ? " selected" : ""}`, style: `--i:${Math.min(i, 12)}`,
+      onclick: () => select(i), ondblclick: () => primaryAction(r),
+    },
+      tile(r.kind),
+      el("div", { class: "copy" },
+        el("div", { class: "title" }, highlight(r.title, t)),
+        meta.length ? el("div", { class: "meta" }, meta.map((m, j) => el("span", { class: j ? "dot" : "" }, highlight(m, t)))) : null,
+        r.snippet && r.kind !== "password" && t.length ? el("div", { class: "snip" }, highlight(r.snippet, t)) : null));
     ul.append(li);
   });
 }
@@ -227,7 +273,7 @@ function select(i) {
   state.selected = i;
   [...$("#results").children].forEach((li, j) => li.classList.toggle("selected", i === j));
   $("#results").children[i].scrollIntoView({ block: "nearest" });
-  showDetail(state.results[i].id, false);
+  showDetail(state.results[i].id);
 }
 
 async function primaryAction(r) {
@@ -249,57 +295,75 @@ async function openFile(id) {
 // ----------------------------------------------------------------- detail
 function hideDetail() { $("#detail").classList.add("hidden"); state.detail = null; }
 
+const valueBox = (content, ...buttons) => el("div", { class: "valuebox" }, content, ...buttons);
+
 async function showDetail(id) {
   const item = await api(`/api/items/${id}`);
+  if (state.results[state.selected]?.id !== id) return; // selection moved on
   state.detail = item;
   const t = terms();
   const box = $("#detail");
   box.replaceChildren();
   box.classList.remove("hidden");
-  box.append(el("h2", {}, KIND_ICON[item.kind], " ", highlight(item.title, t)));
-  const actions = el("div", { class: "actions" });
+
+  const parts = [];
+  const sub = item.kind === "file" ? item.path : KIND_LABEL[item.kind];
+  parts.push(el("div", { class: "head" }, tile(item.kind),
+    el("div", { style: "min-width:0" }, el("h2", {}, highlight(item.title, t)), el("div", { class: "sub" }, sub))));
 
   if (item.kind === "file") {
-    box.append(el("div", { class: "meta" }, item.path), el("div", { class: "meta" }, `${fmtSize(item.size)} · แก้ไขล่าสุด ${fmtDate(item.mtime)}`));
-    actions.append(
-      el("button", { class: "primary", onclick: () => openFile(item.id) }, state.status.mode === "local" ? "เปิดไฟล์" : "ดาวน์โหลด"),
-      el("button", { onclick: () => copy(item.path, "คัดลอก path แล้ว") }, "คัดลอก path"));
-    box.append(actions);
-    if (item.content) box.append(el("pre", {}, highlight(item.content.slice(0, 20000), t)));
-    else box.append(el("p", { class: "muted" }, "ไม่มีเนื้อหาที่อ่านได้ (ค้นได้จากชื่อไฟล์)"));
+    parts.push(el("div", { class: "stats" },
+      el("div", {}, el("strong", {}, ext(item.title)), el("span", {}, "ชนิด")),
+      el("div", {}, el("strong", {}, fmtSize(item.size)), el("span", {}, "ขนาด")),
+      el("div", {}, el("strong", {}, fmtShortDate(item.mtime)), el("span", {}, "แก้ไขล่าสุด"))));
+    parts.push(el("div", { class: "actions" },
+      btn(state.status.mode === "local" ? "เปิดไฟล์" : "ดาวน์โหลด", () => openFile(item.id), "primary", "open"),
+      btn("คัดลอก path", () => copy(item.path, "คัดลอก path แล้ว"), "secondary", "copy")));
+    parts.push(item.content
+      ? el("pre", {}, highlight(item.content.slice(0, 20000), t))
+      : el("p", { class: "secondary" }, "ไม่มีเนื้อหาที่อ่านได้ (ค้นได้จากชื่อไฟล์)"));
+    box.append(...parts.map((p, i) => withReveal(p, i)));
     return;
   }
 
-  if (item.kind === "bookmark" || item.kind === "password") {
+  if ((item.kind === "bookmark" || item.kind === "password") && item.url) {
     const u = safeUrl(item.url);
-    if (item.url) box.append(el("div", { class: "field" }, el("label", {}, "URL"),
-      u ? el("a", { href: u, target: "_blank", rel: "noopener noreferrer" }, item.url) : el("span", {}, item.url)));
+    parts.push(el("div", { class: "field" }, el("label", {}, "URL"),
+      valueBox(u ? el("a", { href: u, target: "_blank", rel: "noopener noreferrer", class: "value" }, item.url) : el("span", { class: "value" }, item.url),
+        u ? btn("", () => window.open(u, "_blank", "noopener"), "ghost icon-only sm", "open", { title: "เปิดลิงก์" }) : null)));
   }
   if (item.kind === "password") {
-    if (item.username) box.append(el("div", { class: "field" }, el("label", {}, "Username"),
-      el("div", { class: "row" }, el("span", { class: "secret" }, item.username), el("button", { onclick: () => copy(item.username) }, "คัดลอก"))));
-    const secret = el("span", { class: "secret" }, "••••••••••");
-    const showBtn = el("button", { onclick: async () => {
+    if (item.username) parts.push(el("div", { class: "field" }, el("label", {}, "Username"),
+      valueBox(el("span", { class: "value" }, item.username), btn("", () => copy(item.username), "ghost icon-only sm", "copy", { title: "คัดลอก" }))));
+    const secret = el("span", { class: "secret" }, "••••••••••••");
+    let shown = false;
+    const toggle = btn("", async () => {
+      if (shown) { secret.textContent = "••••••••••••"; shown = false; return; }
       const p = await revealPassword(item.id);
       if (p == null) return;
-      if (secret.textContent.startsWith("•")) { secret.textContent = p; showBtn.textContent = "ซ่อน"; }
-      else { secret.textContent = "••••••••••"; showBtn.textContent = "แสดง"; }
-    } }, "แสดง");
-    box.append(el("div", { class: "field" }, el("label", {}, "Password"), el("div", { class: "row" }, secret, showBtn,
-      el("button", { class: "primary", onclick: async () => { const p = await revealPassword(item.id); if (p != null) copy(p, "คัดลอกรหัสผ่านแล้ว"); } }, "คัดลอก"))));
+      secret.textContent = p; shown = true;
+    }, "ghost icon-only sm", "eye", { title: "แสดง/ซ่อน" });
+    parts.push(el("div", { class: "field" }, el("label", {}, "Password"),
+      valueBox(secret, toggle, btn("", async () => { const p = await revealPassword(item.id); if (p != null) copy(p, "คัดลอกรหัสผ่านแล้ว"); }, "ghost icon-only sm", "copy", { title: "คัดลอก" }))));
+    parts.push(el("div", { class: "actions" },
+      btn("คัดลอกรหัสผ่าน", async () => { const p = await revealPassword(item.id); if (p != null) copy(p, "คัดลอกรหัสผ่านแล้ว"); }, "primary", "copy")));
   }
-  if (item.tags && item.tags.length) box.append(el("div", { class: "tags" }, item.tags.map((tag) => el("span", { class: "tag" }, `#${tag}`))));
-  if (item.content) box.append(el("pre", {}, highlight(item.content, t)));
-  box.append(el("div", { class: "meta" }, `แก้ไขล่าสุด ${fmtDate(item.updated_at)}`));
-  actions.append(
-    el("button", { onclick: () => editItem(item.id) }, "แก้ไข"),
-    el("button", { class: "danger", onclick: () => deleteItem(item) }, "ลบ"));
-  box.append(actions);
+  if (item.tags && item.tags.length) parts.push(el("ul", { class: "chips", style: "list-style:none;margin:0;padding:0" }, item.tags.map((tag) => el("li", { class: "chip" }, `#${tag}`))));
+  if (item.content) parts.push(el("pre", {}, highlight(item.content, t)));
+  parts.push(el("div", { class: "sub" }, `แก้ไขล่าสุด ${fmtDate(item.updated_at)}`));
+  parts.push(el("div", { class: "actions" },
+    btn("แก้ไข", () => editItem(item.id), "secondary"),
+    btn("ลบ", () => deleteItem(item), "danger")));
+  box.append(...parts.map((p, i) => withReveal(p, i)));
+}
+
+function withReveal(node, i) {
+  node.classList.add("reveal");
+  node.style.setProperty("--i", i);
+  return node;
 }
 
 // ------------------------------------------------------------------ edit
-const FIELD_LABELS = { note: "โน้ต", bookmark: "ลิงก์", password: "รหัสผ่าน" };
-
 async function editItem(id, kind) {
   const item = id ? await api(`/api/items/${id}`) : { kind, title: "", content: "", url: "", username: "", tags: [] };
   kind = item.kind;
@@ -313,12 +377,12 @@ async function editItem(id, kind) {
   fields.push({ name: "content", label: kind === "note" ? "เนื้อหา" : "หมายเหตุ", type: "textarea", value: item.content });
   fields.push({ name: "tags", label: "แท็ก (คั่นด้วยเว้นวรรค)", value: (item.tags || []).join(" "), placeholder: "งาน ส่วนตัว" });
 
-  const saved = await modalLoop(`${id ? "แก้ไข" : "เพิ่ม"}${FIELD_LABELS[kind]}`, fields, (v) => {
+  const saved = await modalLoop(`${id ? "แก้ไข" : "เพิ่ม"}${KIND_LABEL[kind]}`, fields, (v) => {
     const body = { kind, title: v.title, content: v.content, url: v.url || "", username: v.username || "", tags: v.tags.split(/\s+/).filter(Boolean) };
     if (kind === "password") body.password = id && !v.password ? null : v.password;
     return api(id ? `/api/items/${id}` : "/api/items", { method: id ? "PUT" : "POST", body }).catch((e) => {
       // The form dialog is open, so we can't stack the unlock dialog on top of it.
-      if (e.status === 423) throw new Error("ตู้รหัสผ่านล็อกอยู่ — ยกเลิกแล้วกด 🔒 เพื่อปลดล็อกก่อน");
+      if (e.status === 423) throw new Error("ตู้รหัสผ่านล็อกอยู่ — ยกเลิกแล้วกดปุ่มกุญแจเพื่อปลดล็อกก่อน");
       throw e;
     });
   });
@@ -327,7 +391,7 @@ async function editItem(id, kind) {
     await refreshStatus();
     await search();
     const idx = state.results.findIndex((r) => r.id === saved.id);
-    if (idx >= 0) select(idx); else showDetail(saved.id);
+    if (idx >= 0) select(idx);
   }
 }
 
@@ -349,39 +413,41 @@ async function openSettings() {
   form.onsubmit = (e) => e.preventDefault();
   const idx = s.indexing.last;
   form.append(el("h2", {}, "ตั้งค่า"),
-    el("p", { class: "muted" }, `โหมด: ${s.mode === "local" ? "Local (เครื่องนี้)" : "Server"}`),
-    el("p", { class: "muted" }, s.indexing.running ? "กำลังสแกนไฟล์…" :
-      idx ? `สแกนล่าสุด: ${idx.scanned} ไฟล์, อัปเดต ${idx.added_or_updated}, ลบ ${idx.removed} (${idx.seconds}s)` : "ยังไม่ได้สแกน"));
+    el("div", { class: "stats" },
+      el("div", {}, el("strong", {}, s.mode === "local" ? "Local" : "Server"), el("span", {}, "โหมด")),
+      el("div", {}, el("strong", {}, idx ? idx.scanned.toLocaleString() : "—"), el("span", {}, "ไฟล์ที่สแกน")),
+      el("div", {}, el("strong", {}, s.indexing.running ? "กำลังสแกน" : idx ? `${idx.seconds}s` : "—"), el("span", {}, "สแกนล่าสุด"))));
 
   if (s.can_edit_folders) {
     const ta = el("textarea", { placeholder: "/home/me/Documents\nD:\\Work" }, s.folders.join("\n"));
-    ta.style.minHeight = "100px";
+    ta.style.minHeight = "110px";
     const err = el("p", { class: "error" });
-    form.append(el("div", { class: "field" }, el("label", {}, "โฟลเดอร์ที่ให้ค้นหา (บรรทัดละโฟลเดอร์)"), ta), err,
-      el("button", { type: "button", class: "primary", onclick: async () => {
+    form.append(el("div", { class: "field" }, el("label", {}, "โฟลเดอร์ที่ให้ค้นหา (บรรทัดละโฟลเดอร์)"), el("div", { class: "input" }, ta)), err,
+      el("div", { class: "actions-row", style: "justify-content:flex-start;margin:0" }, btn("บันทึกโฟลเดอร์", async () => {
         try {
           await api("/api/folders", { method: "PUT", body: { folders: ta.value.split("\n") } });
           toast("บันทึกแล้ว กำลังสแกน…"); dlg.close(); pollIndexing();
         } catch (e) { err.textContent = e.message; }
-      } }, "บันทึกโฟลเดอร์"));
+      }, "primary")));
   } else {
-    form.append(el("div", { class: "field" }, el("label", {}, "โฟลเดอร์ที่ค้นหา (ตั้งค่าตอนรันเซิร์ฟเวอร์)"), el("pre", {}, s.folders.join("\n") || "-")));
+    form.append(el("div", { class: "field" }, el("label", {}, "โฟลเดอร์ที่ค้นหา (ตั้งค่าตอนรันเซิร์ฟเวอร์)"),
+      el("ul", { class: "chips", style: "list-style:none;margin:0;padding:0" }, s.folders.map((f) => el("li", { class: "chip" }, f)))));
   }
   if (s.can_upload) {
     const file = el("input", { type: "file", multiple: "" });
-    form.append(el("div", { class: "field" }, el("label", {}, "อัปโหลดไฟล์ขึ้นเซิร์ฟเวอร์เพื่อให้ค้นหาได้"), file),
-      el("button", { type: "button", onclick: async () => {
+    form.append(el("div", { class: "field" }, el("label", {}, "อัปโหลดไฟล์ขึ้นเซิร์ฟเวอร์เพื่อให้ค้นหาได้"), el("div", { class: "input" }, file)),
+      el("div", { class: "actions-row", style: "justify-content:flex-start;margin:0" }, btn("อัปโหลด", async () => {
         if (!file.files.length) return;
         const fd = new FormData();
         for (const f of file.files) fd.append("files", f);
         try { await api("/api/upload", { method: "POST", body: fd }); toast("อัปโหลดแล้ว"); dlg.close(); pollIndexing(); }
         catch (e) { toast(e.message); }
-      } }, "อัปโหลด"));
+      }, "secondary")));
   }
-  form.append(el("div", { class: "row" },
-    el("button", { type: "button", onclick: async () => { await api("/api/reindex", { method: "POST" }); toast("กำลังสแกนใหม่…"); dlg.close(); pollIndexing(); } }, "สแกนไฟล์ใหม่"),
-    s.mode === "server" ? el("button", { type: "button", onclick: async () => { await api("/api/logout", { method: "POST" }); dlg.close(); showLogin(); } }, "ออกจากระบบ") : null,
-    el("button", { type: "button", onclick: () => dlg.close() }, "ปิด")));
+  form.append(el("div", { class: "actions-row" },
+    s.mode === "server" ? btn("ออกจากระบบ", async () => { await api("/api/logout", { method: "POST" }); dlg.close(); showLogin(); }, "danger") : null,
+    btn("สแกนไฟล์ใหม่", async () => { await api("/api/reindex", { method: "POST" }); toast("กำลังสแกนใหม่…"); dlg.close(); pollIndexing(); }, "secondary"),
+    btn("ปิด", () => dlg.close(), "ghost")));
   dlg.onclose = null;
   dlg.showModal();
 }
@@ -401,13 +467,14 @@ async function refreshStatus() {
   const s = state.status;
   if (!s.authenticated) return;
   const total = Object.values(s.counts).reduce((a, b) => a + b, 0);
-  for (const chip of document.querySelectorAll("#filters .chip")) {
-    const k = chip.dataset.kind;
-    chip.querySelector("span").textContent = k ? s.counts[k] : total;
+  for (const item of document.querySelectorAll("#filters [data-kind]")) {
+    const k = item.dataset.kind;
+    item.querySelector(".count").textContent = (k ? s.counts[k] : total).toLocaleString();
   }
-  $("#vault-btn").textContent = s.vault.unlocked ? "🔓" : "🔒";
-  $("#vault-btn").title = s.vault.unlocked ? "ล็อกตู้รหัสผ่าน" : "ปลดล็อกตู้รหัสผ่าน";
-  $("#status-line").textContent = s.indexing.running ? "กำลังสแกนไฟล์…" : `${s.mode === "local" ? "Local" : "Server"} · ${total} รายการ`;
+  const vb = $("#vault-btn");
+  vb.replaceChildren(icon(s.vault.unlocked ? "unlock" : "lock"));
+  vb.title = s.vault.unlocked ? "ล็อกตู้รหัสผ่าน" : "ปลดล็อกตู้รหัสผ่าน";
+  $("#status-line").textContent = s.indexing.running ? "กำลังสแกนไฟล์…" : `${s.mode === "local" ? "Local" : "Server"} · ${total.toLocaleString()} รายการ`;
 }
 
 function showLogin() {
@@ -450,10 +517,10 @@ document.addEventListener("keydown", (e) => {
   }
 });
 $("#filters").addEventListener("click", (e) => {
-  const chip = e.target.closest(".chip");
-  if (!chip) return;
-  state.kind = chip.dataset.kind;
-  document.querySelectorAll("#filters .chip").forEach((c) => c.classList.toggle("active", c === chip));
+  const item = e.target.closest("[data-kind]");
+  if (!item) return;
+  state.kind = item.dataset.kind;
+  document.querySelectorAll("#filters [data-kind]").forEach((c) => c.classList.toggle("active", c === item));
   search();
   $("#q").focus();
 });
