@@ -26,6 +26,12 @@ const ICONS = {
   reset: '<path d="M4 12a8 8 0 1 0 2.4-5.7L4 8.5"/><path d="M4 4v4.5h4.5"/>',
   lines: '<path d="M8 6h12M8 12h12M8 18h8"/><path d="M4 6h.01M4 12h.01M4 18h.01"/>',
   check: '<path d="m5 12 5 5 9-10"/>',
+  search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  filter: '<path d="M4 5h16l-6 7.5V19l-4 1.5v-8z"/>',
+  sort: '<path d="M7 4v16M3.5 16.5 7 20l3.5-3.5M14 6h7M14 11h5M14 16h3"/>',
+  play: '<path d="M8 5.5v13l11-6.5z" fill="currentColor"/>',
+  pointer: '<path d="M6 3l12 7-5.5 1.5L10 17z"/><path d="m12.5 11.5 5 5"/>',
 };
 const icon = (name) => {
   const s = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -37,7 +43,11 @@ const icon = (name) => {
 };
 
 let prefs = loadPrefs();
-const state = { status: null, kind: "", results: [], selected: -1, detailId: null, seq: 0 };
+const state = {
+  status: null, kind: "", results: [], selected: -1, detailId: null, seq: 0,
+  // paging: what the list was searched with, total (null = still counting), more pages?
+  page: null, total: null, approx: false, hasMore: false, loadingMore: false, moreError: false,
+};
 const isSide = () => document.documentElement.dataset.detailMode === "side";
 
 // ------------------------------------------------------------------ helpers
@@ -240,34 +250,96 @@ function scheduleSearch() {
 }
 
 let searchAbort = null;
+let moreAbort = null;
+let countAbort = null;
+let countTimer = null;
+
+/** First page of a new search. Later pages load while scrolling (loadMore). */
 async function search() {
   const seq = ++state.seq;
   const q = $("#q").value.trim();
-  if (searchAbort) searchAbort.abort(); // drop the request for older keystrokes
+  for (const ctl of [searchAbort, moreAbort, countAbort]) ctl?.abort(); // drop older requests
+  clearTimeout(countTimer);
   if (!q && !prefs.recent && !state.kind) {
     // Settings → "รายการล่าสุด" is off: a blank start until the user types.
-    state.results = [];
-    state.selected = -1;
+    Object.assign(state, { results: [], selected: -1, total: 0, approx: false, hasMore: false });
     renderResults();
     hideDetail();
     return;
   }
   searchAbort = new AbortController();
-  const params = new URLSearchParams({ q, kind: state.kind, limit: prefs.resultLimit, sort: prefs.sortBy });
+  state.page = { q, kind: state.kind, sort: prefs.sortBy };
+  const params = new URLSearchParams({ ...state.page, limit: prefs.resultLimit, offset: 0 });
   try {
     const data = await api(`/api/search?${params}`, { signal: searchAbort.signal });
     if (seq !== state.seq) return; // a newer search already finished
-    state.results = data.results;
-    state.selected = data.results.length ? 0 : -1;
+    Object.assign(state, {
+      results: data.results, selected: data.results.length ? 0 : -1,
+      total: data.total, approx: data.approx, hasMore: data.has_more, loadingMore: false, moreError: false,
+    });
     renderResults();
     if (isSide() && state.selected >= 0) showDetail(state.results[0].id);
     else hideDetail();
+    if (data.total == null) scheduleCount(seq);
   } catch (e) {
     if (e.name === "AbortError") return;
     if (e.status === 401) return showLogin();
     toast(e.message);
   }
 }
+
+/** Ask for the total a moment after the user stops typing (counting can take a while). */
+function scheduleCount(seq) {
+  countTimer = setTimeout(async () => {
+    countAbort = new AbortController();
+    try {
+      const c = await api(`/api/search/count?${new URLSearchParams(state.page)}`, { signal: countAbort.signal });
+      if (seq !== state.seq) return;
+      state.total = c.total;
+      state.approx = c.approx;
+      if (!c.approx && state.results.length >= c.total) state.hasMore = false;
+      updateCount();
+      updateSentinel();
+    } catch (e) { /* aborted or failed: the list still works without a total */ }
+  }, 350);
+}
+
+/** Next page, appended to the list. Safe to call often: one request at a time. */
+async function loadMore() {
+  if (!state.hasMore || state.loadingMore || !state.page) return;
+  const seq = state.seq;
+  state.loadingMore = true;
+  state.moreError = false;
+  updateSentinel();
+  moreAbort = new AbortController();
+  const params = new URLSearchParams({ ...state.page, limit: prefs.resultLimit, offset: state.results.length });
+  try {
+    const data = await api(`/api/search?${params}`, { signal: moreAbort.signal });
+    if (seq !== state.seq) return;
+    const have = new Set(state.results.map((r) => r.id));
+    const rows = data.results.filter((r) => !have.has(r.id));
+    const start = state.results.length;
+    state.results.push(...rows);
+    state.hasMore = data.has_more && rows.length > 0;
+    if (data.total != null) { state.total = data.total; state.approx = data.approx; }
+    appendRows(rows, start);
+  } catch (e) {
+    if (e.name === "AbortError") return;
+    state.moreError = true;
+  } finally {
+    if (seq === state.seq) {
+      state.loadingMore = false;
+      updateCount();
+      updateSentinel();
+      // Still near the bottom (short pages)? Keep filling.
+      if (!state.moreError) requestAnimationFrame(() => { observer.unobserve($("#load-more")); observer.observe($("#load-more")); });
+    }
+  }
+}
+
+const observer = new IntersectionObserver((entries) => {
+  if (entries.some((e) => e.isIntersecting)) loadMore();
+}, { rootMargin: "900px 0px" }); // start loading well before the end is visible
 
 function resultMeta(r) {
   if (r.kind === "file") return [ext(r.title), fmtSize(r.size), fmtShortDate(r.mtime)];
@@ -276,13 +348,69 @@ function resultMeta(r) {
   return [fmtShortDate(r.updated_at), ...(r.tags || []).map((t) => `#${t}`)];
 }
 
-function renderResults() {
-  const ul = $("#results");
-  ul.replaceChildren();
+function rowEl(r, i, t, animate) {
+  const meta = resultMeta(r).filter(Boolean);
+  return el("li", {
+    class: `row${animate ? " reveal" : ""}${i === state.selected ? " selected" : ""}`, style: animate ? `--i:${Math.min(i, 12)}` : null,
+    onclick: () => { select(i); if (!isSide()) openDetail(); },
+    ondblclick: () => primaryAction(r),
+  },
+    tile(r.kind),
+    el("div", { class: "copy" },
+      el("div", { class: "title" }, highlight(r.title, t)),
+      meta.length ? el("div", { class: "meta" }, meta.map((m, j) => el("span", { class: j ? "dot" : "" }, highlight(m, t)))) : null,
+      r.snippet && r.kind !== "password" && t.length ? el("div", { class: "snip" }, highlight(r.snippet, t)) : null),
+    canView(r) ? el("div", { class: "row-actions" },
+      btn("ดูเนื้อหา", (e) => { e.stopPropagation(); openViewer(r); }, "secondary sm", "lines", { title: "ดูเนื้อหาพร้อมเลขบรรทัด" })) : null);
+}
+
+function updateCount() {
+  const n = state.results.length;
   const t = terms();
   const label = state.kind ? KIND_LABEL[state.kind] : "";
-  $("#result-title").textContent = !state.results.length ? "" : t.length ? "ผลการค้นหา" : label || "ล่าสุด";
-  $("#result-count").textContent = state.results.length ? `${state.results.length} รายการ` : "";
+  const fmt = (x) => Number(x).toLocaleString();
+  let title = "";
+  if (n) {
+    if (!t.length) title = label || "ล่าสุด";
+    else if (state.total == null) title = "ผลการค้นหา";
+    else title = state.approx ? `พบมากกว่า ${fmt(state.total)} รายการ` : `พบ ${fmt(state.total)} รายการ`;
+  }
+  $("#result-title").textContent = title;
+  let sub = "";
+  if (n) {
+    if (state.total == null) sub = `${fmt(n)}${state.hasMore ? "+" : ""} รายการ · กำลังนับ…`;
+    else if (state.total > n) sub = `แสดง ${fmt(n)} จาก ${state.approx ? "มากกว่า " : ""}${fmt(state.total)}`;
+    else sub = `${fmt(state.total)} รายการ`;
+  }
+  $("#result-count").textContent = sub;
+}
+
+function updateSentinel() {
+  const s = $("#load-more");
+  if (!s) return;
+  const n = state.results.length;
+  s.className = "load-more";
+  if (state.loadingMore) {
+    s.replaceChildren(el("span", { class: "spinner", "aria-hidden": "true" }), "กำลังโหลดเพิ่ม…");
+  } else if (state.moreError) {
+    s.replaceChildren("โหลดไม่สำเร็จ ", btn("ลองอีกครั้ง", () => loadMore(), "secondary sm"));
+  } else if (state.hasMore) {
+    s.replaceChildren(btn("โหลดเพิ่ม", () => loadMore(), "ghost sm")); // fallback if scrolling doesn't trigger
+  } else if (n > prefs.resultLimit) {
+    s.classList.add("end");
+    s.replaceChildren(`แสดงครบ ${n.toLocaleString()} รายการแล้ว`);
+  } else {
+    s.replaceChildren();
+  }
+}
+
+function renderResults() {
+  const ul = $("#results");
+  observer.disconnect();
+  ul.replaceChildren();
+  window.scrollTo({ top: 0 });
+  const t = terms();
+  updateCount();
   if (!state.results.length) {
     const fresh = !t.length;
     ul.append(el("li", { class: "empty reveal" },
@@ -290,29 +418,32 @@ function renderResults() {
       fresh ? "หรือกด เพิ่ม เพื่ออัปโหลดไฟล์ จดโน้ต เก็บลิงก์ หรือรหัสผ่าน" : "ลองคำอื่น หรือคำที่ยาวขึ้น"));
     return;
   }
-  state.results.forEach((r, i) => {
-    const meta = resultMeta(r).filter(Boolean);
-    const li = el("li", {
-      class: `row reveal${i === state.selected ? " selected" : ""}`, style: `--i:${Math.min(i, 12)}`,
-      onclick: () => { select(i); if (!isSide()) openDetail(); },
-      ondblclick: () => primaryAction(r),
-    },
-      tile(r.kind),
-      el("div", { class: "copy" },
-        el("div", { class: "title" }, highlight(r.title, t)),
-        meta.length ? el("div", { class: "meta" }, meta.map((m, j) => el("span", { class: j ? "dot" : "" }, highlight(m, t)))) : null,
-        r.snippet && r.kind !== "password" && t.length ? el("div", { class: "snip" }, highlight(r.snippet, t)) : null),
-      canView(r) ? el("div", { class: "row-actions" },
-        btn("ดูเนื้อหา", (e) => { e.stopPropagation(); openViewer(r); }, "secondary sm", "lines", { title: "ดูเนื้อหาพร้อมเลขบรรทัด" })) : null);
-    ul.append(li);
-  });
+  const frag = document.createDocumentFragment();
+  state.results.forEach((r, i) => frag.append(rowEl(r, i, t, true)));
+  const sentinel = el("li", { id: "load-more", class: "load-more" });
+  frag.append(sentinel);
+  ul.append(frag);
+  updateSentinel();
+  observer.observe(sentinel);
+}
+
+/** Add rows before the "load more" marker without touching existing rows. */
+function appendRows(rows, start) {
+  if (!rows.length) return;
+  const t = terms();
+  const frag = document.createDocumentFragment();
+  rows.forEach((r, k) => frag.append(rowEl(r, start + k, t, false)));
+  $("#results").insertBefore(frag, $("#load-more"));
 }
 
 function select(i) {
   if (i < 0 || i >= state.results.length) return;
+  const rows = $("#results").querySelectorAll("li.row");
+  rows[state.selected]?.classList.remove("selected");
   state.selected = i;
-  [...$("#results").children].forEach((li, j) => li.classList.toggle("selected", i === j));
-  $("#results").children[i].scrollIntoView({ block: "nearest" });
+  rows[i].classList.add("selected");
+  rows[i].scrollIntoView({ block: "nearest" });
+  if (i >= state.results.length - 15) loadMore(); // keyboard users reach the end too: fetch early
   // Side column follows the selection; a closed drawer stays closed.
   if (isSide() || $("#detail").classList.contains("open")) showDetail(state.results[i].id);
 }
@@ -631,6 +762,218 @@ $("#viewer-code").addEventListener("click", (e) => {
   if (ln) { const n = ln.textContent; $("#viewer-line").value = n; copy(`${viewer.data.path || viewer.data.title}:${n}`, `คัดลอก ${viewer.data.title}:${n}`); }
 });
 
+// ------------------------------------------------------------------ guide
+/** "น้องค้น" — a magnifying glass with a face (SVG drawn for this app). */
+function mascotSvg() {
+  return '<svg viewBox="0 0 80 80"><line class="handle" x1="55" y1="55" x2="72" y2="72"/>' +
+    '<circle class="lens" cx="36" cy="36" r="27"/><path class="glint" d="M20 26a18 18 0 0 1 9-9"/>' +
+    '<ellipse class="eye" cx="28" cy="35" rx="3.4" ry="4.4"/><ellipse class="eye" cx="44" cy="35" rx="3.4" ry="4.4"/>' +
+    '<circle class="shine" cx="29.2" cy="33.4" r="1.2"/><circle class="shine" cx="45.2" cy="33.4" r="1.2"/>' +
+    '<ellipse class="cheek" cx="21.5" cy="43" rx="4" ry="2.6"/><ellipse class="cheek" cx="50.5" cy="43" rx="4" ry="2.6"/>' +
+    '<path class="mouth" d="M31 44q5 5 10 0"/></svg>';
+}
+document.querySelectorAll(".mascot").forEach((m) => { m.innerHTML = mascotSvg(); }); // static, trusted markup
+
+const GUIDE = [
+  { key: "search", icon: "search", color: "file", title: "ค้นหาทุกอย่าง", target: ".input.search",
+    text: "พิมพ์คำเดียว เจอทั้งชื่อไฟล์ เนื้อหาในไฟล์ โน้ต ลิงก์ และรหัสผ่าน ภาษาไทยที่เขียนติดกันก็เจอ กด / เพื่อเริ่มพิมพ์ได้ทันที" },
+  { key: "add", icon: "plus", color: "note", title: "เพิ่มข้อมูล", target: "#add-btn",
+    text: "ปุ่ม เพิ่ม: อัปโหลดไฟล์ จดโน้ต เก็บลิงก์ หรือเก็บรหัสผ่าน ทุกอย่างค้นเจอทันทีที่บันทึก" },
+  { key: "upload", icon: "upload", color: "bookmark", title: "อัปโหลด & ลากวาง", target: "#main",
+    text: "ลากไฟล์จากเครื่องมาวางตรงไหนก็ได้ในหน้า มีแถบความคืบหน้า และค้นเนื้อหาในไฟล์ได้ทันที" },
+  { key: "filters", icon: "filter", color: "password", title: "เลือกประเภท", target: "#filters",
+    text: "ทั้งหมด / ไฟล์ / โน้ต / ลิงก์ / รหัสผ่าน ถ้ายังไม่พิมพ์จะเห็นรายการล่าสุดของประเภทนั้น" },
+  { key: "detail", icon: "open", color: "file", title: "รายละเอียด & เปิดไฟล์", target: "#results",
+    text: "คลิกผลลัพธ์เพื่อดูรายละเอียด ดับเบิลคลิกหรือกด Enter เพื่อเปิดไฟล์ เปิดลิงก์ หรือคัดลอกรหัสผ่าน" },
+  { key: "viewer", icon: "lines", color: "note", title: "ดูเนื้อหา & ไปบรรทัดที่เจอ", target: "#results",
+    text: "ปุ่ม ดูเนื้อหา แสดงไฟล์พร้อมเลขบรรทัด บอกว่าเจอกี่ครั้งในกี่บรรทัด กดรายการเพื่อกระโดดไปบรรทัดนั้น" },
+  { key: "sort", icon: "sort", color: "bookmark", title: "เรียงลำดับ", target: "#sort-btn",
+    text: "เกี่ยวข้องที่สุด แก้ไขล่าสุด เก่าสุด ชื่อ ขนาด หรือประเภท ระบบจำค่าที่เลือกไว้ให้" },
+  { key: "vault", icon: "lock", color: "password", title: "ตู้รหัสผ่าน", target: "#vault-btn",
+    text: "รหัสผ่านถูกเข้ารหัสด้วย master password ปลดล็อกแล้วคัดลอกได้ในคลิกเดียว ล็อกเองเมื่อไม่ได้ใช้" },
+  { key: "scan", icon: "activity", color: "file", title: "การสแกนไฟล์", target: "#settings-btn",
+    text: "ดูสถานะสด หยุด/เริ่มสแกน และเลือกโหมด ประหยัด/สมดุล/เร็วสุด เพื่อไม่ให้เครื่องหน่วง" },
+  { key: "settings", icon: "palette", color: "note", title: "ปรับหน้าตา", target: "#settings-btn",
+    text: "ธีม สี ขนาดตัวอักษร ซ่อนส่วนที่ไม่ใช้ หรือเลือกแบบเรียบ กดคืนค่าเริ่มต้นได้ทุกเมื่อ" },
+];
+
+const guideOpen = () => !$("#guide").classList.contains("hidden");
+
+function guideTile(g) {
+  return el("div", { class: `tile ${g.color}` }, icon(g.icon));
+}
+
+function renderGuide() {
+  const cards = GUIDE.map((g, i) => {
+    const video = el("video", { muted: "", loop: "", playsinline: "", preload: "none",
+      poster: `/static/guide/${g.key}.jpg`, src: `/static/guide/${g.key}.mp4` });
+    video.muted = true;
+    const media = el("div", { class: "gmedia", title: "ดูวิดีโอ",
+      onclick: () => { if (video.paused) { video.play(); media.classList.add("playing"); } else { video.pause(); media.classList.remove("playing"); } } },
+      video, el("div", { class: "play" }, el("span", {}, icon("play"))));
+    video.addEventListener("error", () => media.remove()); // video not available
+    return el("article", { class: "gcard", style: `--i:${i}` },
+      el("div", { class: "gtop" }, guideTile(g), el("h3", {}, g.title)),
+      media,
+      el("p", {}, g.text),
+      el("div", { class: "gfoot" }, btn("ชี้ให้ดู", () => { closeGuide(); startTour([tourStepFor(g)]); }, "secondary sm", "pointer")));
+  });
+  cards.push(el("article", { class: "gcard", style: `--i:${GUIDE.length}` },
+    el("div", { class: "gtop" }, guideTile({ color: "upload", icon: "keyboard" }), el("h3", {}, "คีย์ลัด")),
+    el("div", { class: "keys" },
+      ...[["ไปที่ช่องค้นหา", "/ หรือ Ctrl+K"], ["เลือกผลลัพธ์", "↑ ↓"], ["เปิด / คัดลอก", "Enter"], ["ดูรายละเอียด", "Shift+Enter"],
+        ["คำถัดไปในหน้าดูเนื้อหา", "Enter / F3"], ["ปิดหน้าต่าง / ล้างคำค้น", "Esc"]]
+        .map(([a, k]) => el("div", {}, el("span", {}, a), el("kbd", {}, k)))),
+    el("p", {}, "ทุกอย่างทำได้ด้วยคีย์บอร์ด ไม่ต้องจับเมาส์เลย")));
+  $("#guide-grid").replaceChildren(...cards);
+}
+
+function openGuide() {
+  closeSettings();
+  closeDetail();
+  $("#welcome").classList.add("hidden");
+  renderGuide();
+  $("#guide").classList.remove("hidden");
+  $("#scrim").classList.remove("hidden");
+  $("#guide-tour").focus();
+}
+
+function closeGuide() {
+  if (!guideOpen()) return;
+  $("#guide").classList.add("hidden");
+  $("#guide-grid").replaceChildren(); // stops videos
+  if (!settingsOpen() && !$("#detail").classList.contains("open")) $("#scrim").classList.add("hidden");
+}
+
+// ------------------------------------------------------------------- tour
+const TOUR = [
+  { sel: ".input.search", title: "ช่องค้นหาช่องเดียว", text: "พิมพ์อะไรก็ได้ ชื่อไฟล์ เนื้อหา โน้ต ลิงก์ รหัสผ่าน ผลลัพธ์ขึ้นทันทีระหว่างพิมพ์ (กด / เพื่อมาที่นี่)" },
+  { sel: "#add-btn", title: "ปุ่มเพิ่ม", text: "อัปโหลดไฟล์ จดโน้ต เก็บลิงก์ หรือรหัสผ่าน หรือจะลากไฟล์มาวางที่ไหนก็ได้" },
+  { sel: "#filters", title: "เลือกประเภท", text: "ดูเฉพาะไฟล์ โน้ต ลิงก์ หรือรหัสผ่าน ตัวเลขบอกจำนวนในแต่ละประเภท" },
+  { sel: "#results", title: "ผลลัพธ์", text: "คลิกเพื่อดูรายละเอียด ดับเบิลคลิกเพื่อเปิด ปุ่ม ดูเนื้อหา จะแสดงเลขบรรทัดที่เจอคำค้น" },
+  { sel: "#sort-btn", title: "เรียงลำดับ", text: "เกี่ยวข้องที่สุด ล่าสุด ชื่อ ขนาด หรือประเภท" },
+  { sel: "#detail", title: "รายละเอียด", text: "ข้อมูลของรายการที่เลือก พร้อมปุ่มเปิดไฟล์ ดูเนื้อหา และคัดลอก" },
+  { sel: "#vault-btn", title: "ตู้รหัสผ่าน", text: "ล็อก/ปลดล็อกได้ตรงนี้ ระบบล็อกเองเมื่อไม่ได้ใช้ 15 นาที" },
+  { sel: "#settings-btn", title: "ตั้งค่า", text: "ปรับหน้าตา ซ่อนส่วนที่ไม่ใช้ ดูสถานะและหยุดการสแกนไฟล์" },
+  { sel: "#help-btn", title: "กลับมาดูได้เสมอ", text: "คู่มือและวิดีโอสั้นของทุกเมนูอยู่ที่ปุ่มนี้ เท่านี้ก็พร้อมใช้งานแล้ว!" },
+];
+const tourStepFor = (g) => ({ sel: g.target, title: g.title, text: g.text });
+const tour = { steps: [], i: 0 };
+const tourOpen = () => !$("#tour").classList.contains("hidden");
+
+function targetOf(step) {
+  const t = step.sel && document.querySelector(step.sel);
+  if (!t) return null;
+  const r = t.getBoundingClientRect();
+  return r.width > 4 && r.height > 4 ? t : null;
+}
+
+function startTour(steps = TOUR) {
+  closeGuide();
+  closeSettings();
+  $("#welcome").classList.add("hidden");
+  // Skip steps whose element is hidden by the user's display settings.
+  tour.steps = steps.length > 1 ? steps.filter((s) => targetOf(s)) : steps;
+  tour.i = 0;
+  if (!tour.steps.length) return;
+  $("#tour").classList.remove("hidden");
+  renderTourStep();
+}
+
+function renderTourStep() {
+  const step = tour.steps[tour.i];
+  const many = tour.steps.length > 1;
+  const target = targetOf(step);
+  const spot = $("#tour-spot");
+  const bubble = $("#tour-bubble");
+  $("#tour-step").textContent = many ? `${tour.i + 1} / ${tour.steps.length}` : "";
+  $("#tour-title").textContent = step.title;
+  $("#tour-text").textContent = step.text;
+  $("#tour-dots").replaceChildren(...(many ? tour.steps.map((_, k) => el("i", { class: k === tour.i ? "on" : "" })) : []));
+  $("#tour-back").classList.toggle("hidden", !many);
+  $("#tour-back").disabled = tour.i === 0;
+  $("#tour-skip").classList.toggle("hidden", !many || tour.i === tour.steps.length - 1);
+  $("#tour-next").textContent = tour.i === tour.steps.length - 1 ? (many ? "เสร็จแล้ว!" : "เข้าใจแล้ว") : "ถัดไป";
+
+  bubble.classList.remove("pop", "center");
+  void bubble.offsetWidth; // restart the pop animation
+  if (target) {
+    target.scrollIntoView({ block: "nearest", inline: "nearest" });
+    const r = target.getBoundingClientRect();
+    const pad = 6;
+    const box = {
+      left: Math.max(4, r.left - pad), top: Math.max(4, r.top - pad),
+      width: Math.min(r.width + pad * 2, innerWidth - 8), height: Math.min(r.height + pad * 2, innerHeight - 8),
+    };
+    Object.assign(spot.style, { left: `${box.left}px`, top: `${box.top}px`, width: `${box.width}px`, height: `${box.height}px`, opacity: 1 });
+    const bw = Math.min(380, innerWidth - 24);
+    const bh = bubble.offsetHeight || 170;
+    const below = box.top + box.height + 14;
+    const above = box.top - bh - 14;
+    let top = below + bh < innerHeight - 8 ? below : above > 8 ? above : Math.max(8, innerHeight - bh - 8);
+    let left = Math.min(Math.max(12, box.left + box.width / 2 - bw / 2), innerWidth - bw - 12);
+    // Big targets (e.g. the result list): beside the spotlight if there is room, else inside it.
+    if (box.height > innerHeight * 0.55) {
+      top = Math.min(Math.max(8, box.top + 20), innerHeight - bh - 8);
+      if (box.left + box.width + 16 + bw < innerWidth) left = box.left + box.width + 16;
+      else if (box.left - 16 - bw > 0) left = box.left - 16 - bw;
+      else left = Math.min(box.left + 20, innerWidth - bw - 12);
+    }
+    Object.assign(bubble.style, { left: `${left}px`, top: `${top}px` });
+  } else {
+    Object.assign(spot.style, { left: `${innerWidth / 2}px`, top: `${innerHeight / 2}px`, width: "0px", height: "0px" });
+    bubble.classList.add("center");
+  }
+  bubble.classList.add("pop");
+  const m = bubble.querySelector(".mascot");
+  m.classList.remove("wave"); void m.offsetWidth; m.classList.add("wave");
+  $("#tour-next").focus();
+}
+
+function endTour(finished) {
+  $("#tour").classList.add("hidden");
+  try { localStorage.setItem("sa-tour-done", "1"); } catch { /* ignore */ }
+  if (finished && tour.steps.length > 1) {
+    confetti();
+    toast("เก่งมาก! พร้อมใช้งานแล้ว");
+  }
+  $("#q").focus();
+}
+
+function confetti() {
+  if (document.documentElement.dataset.motion === "off" || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const box = el("div", { class: "confetti" });
+  const colors = ["#f7a8b8", "#f8da9d", "#c4ddfb", "#c5e5c0", "#eccef3", getComputedStyle(document.documentElement).getPropertyValue("--color-accent").trim() || "#262626"];
+  for (let k = 0; k < 90; k++) {
+    box.append(el("i", { style: `left:${Math.random() * 100}%;background:${colors[k % colors.length]};` +
+      `--x:${(Math.random() - 0.5) * 240}px;--r:${(Math.random() - 0.5) * 1440}deg;--d:${1.4 + Math.random() * 1.2}s;--delay:${Math.random() * 0.35}s;` +
+      `border-radius:${k % 3 === 0 ? "50%" : "2px"}` }));
+  }
+  document.body.append(box);
+  setTimeout(() => box.remove(), 3200);
+}
+
+$("#tour-next").addEventListener("click", () => { if (tour.i < tour.steps.length - 1) { tour.i++; renderTourStep(); } else endTour(true); });
+$("#tour-back").addEventListener("click", () => { if (tour.i > 0) { tour.i--; renderTourStep(); } });
+$("#tour-skip").addEventListener("click", () => endTour(false));
+window.addEventListener("resize", () => { if (tourOpen()) renderTourStep(); });
+$("#help-btn").addEventListener("click", openGuide);
+$("#guide-close").addEventListener("click", closeGuide);
+$("#guide-close-2").addEventListener("click", closeGuide);
+$("#guide-tour").addEventListener("click", () => startTour());
+$("#guide").addEventListener("click", (e) => { if (e.target === $("#guide")) closeGuide(); });
+$("#welcome-yes").addEventListener("click", () => startTour());
+$("#welcome-no").addEventListener("click", () => {
+  $("#welcome").classList.add("hidden");
+  try { localStorage.setItem("sa-tour-done", "1"); } catch { /* ignore */ }
+});
+
+function maybeWelcome() {
+  let done = false;
+  try { done = localStorage.getItem("sa-tour-done") === "1"; } catch { /* ignore */ }
+  if (!done) setTimeout(() => { if (!tourOpen() && !guideOpen()) $("#welcome").classList.remove("hidden"); }, 1200);
+}
+
 // --------------------------------------------------------------- settings
 const settingsOpen = () => !$("#settings").classList.contains("hidden");
 
@@ -758,12 +1101,17 @@ function pageBehavior() {
       pref("กด Enter", "Shift+Enter = ดูรายละเอียด/เปิดทันที", segmented([["open", "เปิดทันที"], ["details", "ดูรายละเอียด"], ["view", "ดูเนื้อหา"]], p.enterAction, (v) => setPref("enterAction", v))),
       pref("เรียงผลลัพธ์", "เปลี่ยนได้จากปุ่มเรียงลำดับเหนือผลลัพธ์ด้วย", el("select", { class: "select", onchange: (e) => setPref("sortBy", e.target.value) },
         SORT_OPTIONS.map(([v, label]) => el("option", { value: v, selected: v === p.sortBy ? "" : null }, label)))),
-      pref("จำนวนผลลัพธ์สูงสุด", null, segmented([[20, "20"], [50, "50"], [100, "100"]], p.resultLimit, (v) => setPref("resultLimit", v))),
+      pref("โหลดผลลัพธ์ครั้งละ", "เลื่อนลงเพื่อโหลดเพิ่มเอง", segmented([[20, "20"], [50, "50"], [100, "100"]], p.resultLimit, (v) => setPref("resultLimit", v))),
+    ]),
+    group("คู่มือ", [
+      pref("คู่มือการใช้งาน", "การ์ดอธิบายทุกเมนูพร้อมวิดีโอสั้น (กด ? ได้ทุกเมื่อ)", btn("เปิดคู่มือ", () => openGuide(), "secondary sm", "lines")),
+      pref("ทัวร์ 1 นาที", "ชี้ทีละจุดบนหน้าจอจริง", btn("เริ่มทัวร์", () => startTour(), "primary sm", "pointer")),
     ]),
     group("คีย์ลัด", [
       pref("ไปที่ช่องค้นหา", null, el("span", {}, el("kbd", {}, "/"), " หรือ ", el("kbd", {}, "Ctrl"), "+", el("kbd", {}, "K"))),
       pref("เลือกผลลัพธ์", null, el("span", {}, el("kbd", {}, "↑"), " ", el("kbd", {}, "↓"))),
       pref("ปิดหน้าต่าง / ล้างคำค้น", null, el("kbd", {}, "Esc")),
+      pref("เปิดคู่มือ", null, el("kbd", {}, "?")),
       pref("ในหน้าดูเนื้อหา: คำที่เจอถัดไป / ก่อนหน้า", null, el("span", {}, el("kbd", {}, "Enter"), " / ", el("kbd", {}, "Shift"), "+", el("kbd", {}, "Enter"))),
     ]),
   ];
@@ -919,6 +1267,10 @@ function pageReset() {
     group("คืนค่า", [
       pref("คืนค่าหน้าตาเริ่มต้น", "ล้างทุกอย่างในหมวด หน้าตา / การแสดงผล / การใช้งาน กลับเป็นค่าเริ่มต้น",
         btn("คืนค่าเริ่มต้น", () => applyPreset(DEFAULT_PREFS, "คืนค่าเริ่มต้นแล้ว"), "danger sm")),
+      pref("ชวนดูทัวร์อีกครั้ง", "แสดงคำชวนทัวร์ครั้งถัดไปที่เปิดแอป", btn("รีเซ็ตทัวร์", () => {
+        try { localStorage.removeItem("sa-tour-done"); } catch { /* ignore */ }
+        toast("จะชวนดูทัวร์อีกครั้งเมื่อเปิดแอปครั้งถัดไป");
+      }, "secondary sm")),
     ], "การตั้งค่าหน้าตาบันทึกไว้ใน browser นี้ ไม่กระทบโฟลเดอร์ ไฟล์ โน้ต หรือรหัสผ่าน"),
   ];
 }
@@ -955,6 +1307,7 @@ function renderSettingsPage() {
 
 async function openSettings(page) {
   if (typeof page === "string") settingsPage = page;
+  closeGuide();
   await refreshStatus();
   closeDetail();
   renderSettingsNav();
@@ -1042,6 +1395,7 @@ async function showMain() {
   await refreshStatus();
   $("#q").focus();
   search();
+  maybeWelcome();
 }
 
 function setKind(kind) {
@@ -1141,6 +1495,16 @@ $("#q").addEventListener("keydown", (e) => {
 });
 document.addEventListener("keydown", (e) => {
   if ($("#modal").open) return;
+  if (tourOpen()) {
+    if (e.key === "Escape") endTour(false);
+    else if (e.key === "ArrowRight") $("#tour-next").click();
+    else if (e.key === "ArrowLeft") $("#tour-back").click();
+    return;
+  }
+  if (guideOpen()) {
+    if (e.key === "Escape") closeGuide();
+    return;
+  }
   if (viewerOpen()) {
     if (e.key === "Escape") { e.preventDefault(); closeViewer(); }
     return; // the viewer handles its own keys
@@ -1154,6 +1518,7 @@ document.addEventListener("keydown", (e) => {
     return;
   }
   const typing = ["INPUT", "TEXTAREA"].includes(document.activeElement.tagName);
+  if (e.key === "?" && !typing) { e.preventDefault(); openGuide(); return; }
   if ((e.key === "/" && !typing) || (e.key.toLowerCase() === "k" && (e.ctrlKey || e.metaKey))) {
     e.preventDefault(); $("#q").focus(); $("#q").select();
   }
@@ -1171,7 +1536,7 @@ document.addEventListener("click", (e) => {
 });
 $("#sort-btn").addEventListener("click", (e) => { e.stopPropagation(); toggleSortMenu(); });
 updateSortLabel();
-$("#scrim").addEventListener("click", () => { closeSettings(); closeDetail(); });
+$("#scrim").addEventListener("click", () => { closeGuide(); closeSettings(); closeDetail(); });
 $("#settings-btn").addEventListener("click", () => openSettings());
 $("#settings-close").addEventListener("click", closeSettings);
 // Click outside the settings window closes it.

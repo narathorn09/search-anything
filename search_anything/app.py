@@ -261,14 +261,24 @@ def create_app(config: Config) -> FastAPI:
 
     # ----------------------------------------------------------- search
     @app.get("/api/search", dependencies=[Depends(require_auth)])
-    def search(q: str = "", kind: str | None = None, limit: int = 50,
+    def search(q: str = "", kind: Literal["", "all", "file", "note", "bookmark", "password"] | None = None,
+               limit: int = 50, offset: int = 0,
                sort: Literal["relevance", "newest", "oldest", "name", "name_desc", "largest", "type"] = "relevance"):
-        if kind in ("", "all"):
-            kind = None
+        """One page of results. ``total`` is None when not counted yet (ask /api/search/count)."""
+        kind = kind or None if kind != "all" else None
         limit = max(1, min(limit, 200))
+        offset = max(0, offset)
         terms = q.split()
-        rows = db.search(q, kind, limit, sort)
-        return {"query": q, "results": [serialize(r, terms) for r in rows]}
+        page = db.page(q, kind, sort, offset, limit)
+        return {"query": q, "offset": offset, "total": page["total"], "approx": page["approx"],
+                "has_more": page["has_more"], "results": [serialize(r, terms) for r in page["results"]]}
+
+    @app.get("/api/search/count", dependencies=[Depends(require_auth)])
+    def search_count(q: str = "", kind: Literal["", "all", "file", "note", "bookmark", "password"] | None = None,
+                     sort: Literal["relevance", "newest", "oldest", "name", "name_desc", "largest", "type"] = "relevance"):
+        """Total number of results. Bounded in time: ``approx`` means "at least"."""
+        kind = kind or None if kind != "all" else None
+        return db.count(q, kind, sort)
 
     # ------------------------------------------------------------ items
     @app.get("/api/items/{item_id}", dependencies=[Depends(require_auth)])
@@ -298,6 +308,7 @@ def create_app(config: Config) -> FastAPI:
                 raise HTTPException(423, "vault is locked")
         fields = save_fields(data)
         item_id = db.add_item(data.kind, fields["title"], fields["body"], fields["extra"], secret)
+        db.invalidate()
         return serialize(db.get_item(item_id), full=True)
 
     @app.put("/api/items/{item_id}", dependencies=[Depends(require_auth)])
@@ -312,6 +323,7 @@ def create_app(config: Config) -> FastAPI:
             except VaultLocked:
                 raise HTTPException(423, "vault is locked")
         db.update_item(item_id, **fields)
+        db.invalidate()
         return serialize(db.get_item(item_id), full=True)
 
     @app.delete("/api/items/{item_id}", dependencies=[Depends(require_auth)])
@@ -323,8 +335,10 @@ def create_app(config: Config) -> FastAPI:
                 raise HTTPException(400, "only uploaded files can be deleted here")
             Path(row["path"]).unlink(missing_ok=True)
             db.delete_paths([row["path"]])
+            db.invalidate()
             return {"ok": True}
         db.delete_item(item_id)
+        db.invalidate()
         return {"ok": True}
 
     VIEW_MAX_BYTES = 10 * 1024 * 1024
@@ -479,6 +493,7 @@ def create_app(config: Config) -> FastAPI:
             raise
         # Index right away so the files are searchable when the request returns.
         ids = await run_in_threadpool(indexer.index_paths, [str(p) for p in saved])
+        db.invalidate()
         return {"saved": [p.name for p in saved], "items": [serialize(db.get_item(i)) for i in ids]}
 
     # ------------------------------------------------------------- ui

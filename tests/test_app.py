@@ -293,3 +293,21 @@ def test_lines_for_viewer(tmp_path):
     bm = c.post("/api/items", json={"kind": "bookmark", "title": "b", "url": "x.com"}).json()
     assert c.get(f"/api/items/{bm['id']}/lines").status_code == 400
     assert "เอกสาร" in c.get("/api/status").json()["supported_formats"]
+
+
+def test_all_view_shows_files_before_searching(tmp_path):
+    import os as _os
+    import time as _t
+    root = tmp_path / "home"
+    root.mkdir()
+    (root / "old-report.txt").write_text("x")
+    _os.utime(root / "old-report.txt", (1_000_000, 1_000_000))
+    (root / "fresh-plan.md").write_text("y")  # modified now
+    c = make_client(tmp_path, folders=[str(root)])
+    c.app.state.indexer.run()
+    _t.sleep(0.01)
+    c.post("/api/items", json={"kind": "note", "title": "newest note"})
+    titles = ids(c.get("/api/search", params={"q": ""}))
+    assert titles == ["newest note", "fresh-plan.md", "old-report.txt"]  # files included, newest first
+    assert ids(c.get("/api/search", params={"q": "", "kind": "note"})) == ["newest note"]
+    assert ids(c.get("/api/search", params={"q": "", "kind": "file"})) == ["fresh-plan.md", "old-report.txt"]

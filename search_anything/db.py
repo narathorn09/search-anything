@@ -36,6 +36,10 @@ KINDS = ("file", "note", "bookmark", "password")
 FILE_SHARDS = 4
 FILE_ID_BASE = 10**12  # file ids are (shard + 1) * FILE_ID_BASE + rowid
 CANDIDATES = 400  # content matches considered per shard before sorting
+NAME_CAP = 2000  # name/path matches considered per shard for the first page
+SNAPSHOT_DEADLINE = 2.5  # seconds a full count/ordering may take before it is cut short
+SNAPSHOT_MAX = 200_000  # results kept for scrolling
+SNAPSHOT_TTL = 20.0  # seconds a result list is reused while scrolling
 EXCERPT_CHARS = 260
 EXCERPT_LEAD = 60
 
@@ -129,7 +133,6 @@ def _size_key(r: dict):
     return -size
 
 
-SORT_POOL = 500
 KIND_ORDER = {"file": 0, "note": 1, "bookmark": 2, "password": 3}
 SORTS = {
     "relevance": None,
@@ -160,8 +163,12 @@ class FileShard:
         self.wconn.commit()
         # WAL lets the reader see committed data while a scan is writing.
         self.rconn = self.wconn if self.memory else _connect(path)
+        # A third connection for long "count everything" queries.
+        self.bconn = self.wconn if self.memory else _connect(path)
+        self._block = threading.Lock()
         if self.memory:
             self._rlock = self._wlock
+            self._block = self._wlock
 
     def to_id(self, rowid: int) -> int:
         return (self.index + 1) * FILE_ID_BASE + rowid
@@ -222,28 +229,87 @@ class FileShard:
             "created_at": row["indexed_at"], "extra": "{}", "secret": None, "body": body, "rank": rank,
         }
 
-    def search(self, long_terms: list[str], short_terms: list[str], limit: int) -> list[dict]:
+    @staticmethod
+    def _filters(long_terms: list[str], short_terms: list[str]):
         short_sql = " AND ".join("(f.title LIKE ? ESCAPE '\\' OR f.path LIKE ? ESCAPE '\\')" for _ in short_terms)
         short_params = [p for t in short_terms for p in (_like(t), _like(t))]
+        return short_sql, short_params
+
+    def search(self, long_terms: list[str], short_terms: list[str], limit: int) -> list[dict]:
+        return self.head(long_terms, short_terms)[0][:limit]
+
+    def head(self, long_terms: list[str], short_terms: list[str]) -> tuple[list[dict], bool]:
+        """The quickly computable best matches, and whether they are *all* matches.
+
+        Name/path matches (capped at NAME_CAP) plus the newest-indexed CANDIDATES
+        content matches, ranked by (name match first, newest first)."""
+        short_sql, short_params = self._filters(long_terms, short_terms)
         with self._rlock:
             c = self.rconn
             if not long_terms:
                 rows = c.execute(
                     f"SELECT f.* FROM files f WHERE {short_sql} ORDER BY f.mtime DESC LIMIT ?",
-                    (*short_params, limit),
+                    (*short_params, NAME_CAP + 1),
                 ).fetchall()
-                hits = [(r, 0) for r in rows]
+                complete = len(rows) <= NAME_CAP
+                hits = [(r, 0) for r in rows[:NAME_CAP]]
             else:
                 match = _match(long_terms)
                 extra = f" AND {short_sql}" if short_sql else ""
                 sql = ("SELECT f.* FROM files_fts JOIN files f ON f.id = files_fts.rowid "
                        f"WHERE files_fts MATCH ?{extra} ORDER BY files_fts.rowid DESC LIMIT ?")
-                name_rows = c.execute(sql, (f"{{title path}} : ({match})", *short_params, limit)).fetchall()
-                body_rows = c.execute(sql, (match, *short_params, CANDIDATES)).fetchall()
+                name_rows = c.execute(sql, (f"{{title path}} : ({match})", *short_params, NAME_CAP + 1)).fetchall()
+                body_rows = c.execute(sql, (match, *short_params, CANDIDATES + 1)).fetchall()
+                complete = len(name_rows) <= NAME_CAP and len(body_rows) <= CANDIDATES
+                name_rows, body_rows = name_rows[:NAME_CAP], body_rows[:CANDIDATES]
                 seen = {r["id"] for r in name_rows}
                 hits = [(r, 0) for r in name_rows] + [(r, 1) for r in body_rows if r["id"] not in seen]
             hits.sort(key=lambda h: (h[1], -h[0]["mtime"]))
-        return [self._as_item(r, rank=(tier, -r["mtime"])) for r, tier in hits[:limit]]
+        return [self._as_item(r, rank=(tier, -r["mtime"])) for r, tier in hits], complete
+
+    def all_matches(self, long_terms: list[str], short_terms: list[str], should_stop) -> tuple[list[dict], bool]:
+        """Every match (id, title, mtime, size, tier) — for totals and deep scrolling.
+        Runs on its own connection so normal searches are never blocked, and
+        stops early (returning what it has, interrupted=True) when ``should_stop()``."""
+        if should_stop():  # out of time, or a newer search already started
+            return [], True
+        short_sql, short_params = self._filters(long_terms, short_terms)
+        out: dict[int, dict] = {}
+        interrupted = False
+        with self._block:
+            c = self.bconn
+            c.set_progress_handler(lambda: 1 if should_stop() else 0, 20_000)
+            try:
+                cols = "f.id, f.title, f.path, f.mtime, f.size, f.indexed_at"
+                if not long_terms:
+                    queries = [(0, f"SELECT {cols} FROM files f WHERE {short_sql}", short_params)]
+                else:
+                    match = _match(long_terms)
+                    extra = f" AND {short_sql}" if short_sql else ""
+                    base = f"SELECT {cols} FROM files_fts JOIN files f ON f.id = files_fts.rowid WHERE files_fts MATCH ?{extra}"
+                    queries = [(0, base, [f"{{title path}} : ({match})", *short_params]), (1, base, [match, *short_params])]
+                for tier, sql, params in queries:
+                    for r in c.execute(sql, params):
+                        if r["id"] not in out:
+                            out[r["id"]] = self._as_item(r, rank=(tier, -r["mtime"]))
+                        if len(out) >= SNAPSHOT_MAX:
+                            interrupted = True
+                            break
+            except sqlite3.OperationalError as exc:
+                if "interrupt" not in str(exc):
+                    raise
+                interrupted = True
+            finally:
+                c.set_progress_handler(None, 0)
+        return list(out.values()), interrupted
+
+    def rows(self, rowids: list[int]) -> dict[int, dict]:
+        if not rowids:
+            return {}
+        marks = ",".join("?" * len(rowids))
+        with self._rlock:
+            found = self.rconn.execute(f"SELECT * FROM files WHERE id IN ({marks})", rowids).fetchall()
+        return {r["id"]: self._as_item(r) for r in found}
 
     def excerpts(self, rowids: list[int], term: str) -> dict[int, str]:
         """A short window of text around the first match, cut inside SQLite."""
@@ -275,6 +341,9 @@ class Database:
             p = Path(self.path)
             shard_paths = [str(p.with_name(f"{p.stem}-files-{i}{p.suffix}")) for i in range(shards)]
         self.shards = [FileShard(sp, i) for i, sp in enumerate(shard_paths)]
+        self._snaps: dict[tuple, dict] = {}
+        self._snap_lock = threading.Lock()
+        self._snap_gen = 0
         self._migrate()
 
     def _migrate(self) -> None:
@@ -392,39 +461,147 @@ class Database:
 
     # ---------------------------------------------------------------- search
     def search(self, query: str, kind: str | None = None, limit: int = 50, sort: str = "relevance") -> list[dict]:
-        """Search everything. ``sort`` other than "relevance" re-orders the best
-        ``SORT_POOL`` matches (so it stays fast with very common words)."""
+        """First ``limit`` results (see ``page`` for totals and scrolling)."""
+        return self.page(query, kind, sort, 0, limit)["results"]
+
+    def page(self, query: str, kind: str | None = None, sort: str = "relevance",
+             offset: int = 0, limit: int = 50) -> dict:
+        """One page of results plus what is known about the total.
+
+        Returns {"results", "total" (None = not counted yet), "approx", "has_more"}.
+        The first page of a relevance search is computed quickly from the best
+        candidates. Later pages, other sorts and totals use a *snapshot*: every
+        match in a fixed order that starts with exactly that first page, so
+        scrolling never repeats or skips results."""
         if sort not in SORTS:
             raise ValueError(f"unknown sort: {sort}")
-        if sort != "relevance":
-            pool = self.search(query, kind, max(limit, SORT_POOL), "relevance")
-            return sorted(pool, key=SORTS[sort])[:limit]
         long_terms, short_terms = split_terms(query)
         if not long_terms and not short_terms:
-            return self.recent(kind, limit)
+            return self._recent_page(kind, sort, offset, limit)
+        term = (long_terms or short_terms)[0].lower()
+        if sort == "relevance" and offset == 0:
+            head, complete = self._head(long_terms, short_terms, kind)
+            if complete:  # every match is already known: remember it for scrolling
+                self._snap_put(self._snap_key(query, kind, sort), head, approx=False)
+            rows = self._add_excerpts(head[:limit], term)
+            return {"results": rows, "total": len(head) if complete else None, "approx": False,
+                    "has_more": len(head) > limit or not complete}
+        snap = self.snapshot(query, kind, sort)
+        rows = self._add_excerpts([dict(r) for r in snap["entries"][offset:offset + limit]], term)
+        return {"results": rows, "total": snap["total"], "approx": snap["approx"],
+                "has_more": offset + limit < len(snap["entries"])}
+
+    def count(self, query: str, kind: str | None = None, sort: str = "relevance") -> dict:
+        snap = self.snapshot(query, kind, sort) if query.strip() else self._recent_snapshot(kind, sort)
+        return {"total": snap["total"], "approx": snap["approx"]}
+
+    # ---- snapshots
+    @staticmethod
+    def _snap_key(query: str, kind: str | None, sort: str) -> tuple:
+        return (" ".join(query.split()), kind, sort)
+
+    def _snap_put(self, key: tuple, entries: list[dict], approx: bool) -> dict:
+        snap = {"entries": entries, "total": len(entries), "approx": approx, "at": time.monotonic()}
+        with self._snap_lock:
+            self._snaps[key] = snap
+            while len(self._snaps) > 24:  # small LRU
+                self._snaps.pop(next(iter(self._snaps)))
+        return snap
+
+    def _snap_get(self, key: tuple) -> dict | None:
+        with self._snap_lock:
+            snap = self._snaps.get(key)
+            if snap and time.monotonic() - snap["at"] < SNAPSHOT_TTL:
+                self._snaps[key] = self._snaps.pop(key)  # most recently used
+                return snap
+        return None
+
+    def invalidate(self) -> None:
+        """Forget cached result lists (after items/files change)."""
+        with self._snap_lock:
+            self._snaps.clear()
+
+    def snapshot(self, query: str, kind: str | None, sort: str) -> dict:
+        key = self._snap_key(query, kind, sort)
+        snap = self._snap_get(key)
+        if snap:
+            return snap
+        with self._snap_lock:
+            self._snap_gen += 1
+            gen = self._snap_gen
+        deadline = time.monotonic() + SNAPSHOT_DEADLINE
+        # Stop when out of time, or as soon as a newer search starts counting.
+        should_stop = lambda: time.monotonic() > deadline or self._snap_gen != gen
+        long_terms, short_terms = split_terms(query)
+        head, complete = self._head(long_terms, short_terms, kind)
+        entries, interrupted = head, False
+        if not complete and kind in (None, "file"):
+            seen = {r["id"] for r in head}
+            rest: list[dict] = []
+            for shard in self.shards:
+                part, stopped = shard.all_matches(long_terms, short_terms, should_stop)
+                rest += [r for r in part if r["id"] not in seen]
+                interrupted = interrupted or stopped
+            rest.sort(key=lambda r: r["rank"])
+            entries = head + rest
+        if sort != "relevance":
+            entries = sorted(entries, key=SORTS[sort])
+        if self._snap_gen != gen:  # superseded: don't cache a cut-short list
+            return {"entries": entries, "total": len(entries), "approx": True, "at": time.monotonic()}
+        return self._snap_put(key, entries, approx=interrupted)
+
+    def _head(self, long_terms, short_terms, kind) -> tuple[list[dict], bool]:
+        results: list[dict] = []
+        complete = True
         # Shards are queried one after another: each query is a few ms, and
         # threads would only fight over the GIL (measured ~3x slower).
-        results: list[dict] = []
         if kind in (None, "file"):
             for shard in self.shards:
-                results += shard.search(long_terms, short_terms, limit)
+                part, done = shard.head(long_terms, short_terms)
+                results += part
+                complete = complete and done
         if kind != "file":
-            results += self._search_items(long_terms, short_terms, kind, limit)
+            results += self._search_items(long_terms, short_terms, kind, SNAPSHOT_MAX)  # personal items: all
         results.sort(key=lambda r: r["rank"])
-        results = results[:limit]
-        # Cut excerpts only for the rows we return.
-        term = (long_terms or short_terms)[0].lower()
+        return results, complete
+
+    def _add_excerpts(self, results: list[dict], term: str) -> list[dict]:
+        """Cut excerpts only for the rows we return."""
         wanted: dict[int, list[dict]] = {}
         for r in results:
             if r["kind"] == "file":
-                shard, rowid = self._split_file_id(r["id"])
+                shard, _ = self._split_file_id(r["id"])
                 wanted.setdefault(shard.index, []).append(r)
         for idx, rows in wanted.items():
-            shard = self.shards[idx]
-            ex = shard.excerpts([r["id"] % FILE_ID_BASE for r in rows], term)
+            ex = self.shards[idx].excerpts([r["id"] % FILE_ID_BASE for r in rows], term)
             for r in rows:
                 r["body"] = ex.get(r["id"] % FILE_ID_BASE, "")
         return results
+
+    # ---- before typing
+    def _recent_total(self, kind: str | None) -> int:
+        counts = self.counts()
+        return counts[kind] if kind else sum(counts.values())
+
+    def _recent_snapshot(self, kind: str | None, sort: str) -> dict:
+        if sort in ("relevance", "newest"):
+            return {"entries": None, "total": self._recent_total(kind), "approx": False}
+        key = self._snap_key("", kind, sort)
+        snap = self._snap_get(key)
+        if snap:
+            return snap
+        entries = sorted(self.recent(kind, SNAPSHOT_MAX), key=SORTS[sort])
+        return self._snap_put(key, entries, approx=False)
+
+    def _recent_page(self, kind: str | None, sort: str, offset: int, limit: int) -> dict:
+        if sort in ("relevance", "newest"):  # newest first: read just what is needed
+            rows = self.recent(kind, offset + limit)[offset:]
+            total = self._recent_total(kind)
+            return {"results": rows, "total": total, "approx": False, "has_more": offset + len(rows) < total}
+        snap = self._recent_snapshot(kind, sort)
+        rows = [dict(r) for r in snap["entries"][offset:offset + limit]]
+        return {"results": rows, "total": snap["total"], "approx": False,
+                "has_more": offset + limit < len(snap["entries"])}
 
     def _search_items(self, long_terms, short_terms, kind, limit) -> list[dict]:
         where, params = [], []
@@ -458,15 +635,18 @@ class Database:
         return out
 
     def recent(self, kind: str | None = None, limit: int = 50) -> list[dict]:
-        if kind == "file":
-            rows = []
+        """Latest items before anything is typed. "All" mixes files and
+        personal items, newest first."""
+        files: list[dict] = []
+        if kind in (None, "file"):
             for shard in self.shards:
                 with shard._rlock:
                     part = shard.rconn.execute(
                         "SELECT * FROM files ORDER BY mtime DESC LIMIT ?", (limit,)).fetchall()
-                rows += [shard._as_item(r, rank=(0, -r["mtime"])) for r in part]
-            rows.sort(key=lambda r: r["rank"])
-            return rows[:limit]
+                files += [shard._as_item(r, rank=(0, -r["mtime"])) for r in part]
+            if kind == "file":
+                files.sort(key=lambda r: r["rank"])
+                return files[:limit]
         sql = "SELECT * FROM items"
         params: list[Any] = []
         if kind:
@@ -475,11 +655,16 @@ class Database:
         sql += " ORDER BY updated_at DESC LIMIT ?"
         params.append(limit)
         with self._lock:
-            return [dict(r) for r in self.conn.execute(sql, params).fetchall()]
+            items = [dict(r) for r in self.conn.execute(sql, params).fetchall()]
+        if kind is None:
+            items = sorted(items + files, key=lambda r: -(r.get("updated_at") or 0))
+        return items[:limit]
 
     def close(self) -> None:
         for shard in self.shards:
             shard.wconn.close()
             if shard.rconn is not shard.wconn:
                 shard.rconn.close()
+            if shard.bconn is not shard.wconn:
+                shard.bconn.close()
         self.conn.close()

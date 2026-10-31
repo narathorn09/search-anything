@@ -50,6 +50,9 @@
         </div>
         <!-- optional (Settings → ปุ่มตู้รหัสผ่าน) -->
         <button id="vault-btn" class="btn ghost icon-only opt-vault" title="ตู้รหัสผ่าน"></button>
+        <button id="help-btn" class="btn ghost icon-only" title="คู่มือการใช้งาน" aria-label="คู่มือการใช้งาน">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.3a2.5 2.5 0 0 1 4.8.9c0 1.7-2.4 2.2-2.4 3.6M12 17h.01"/></svg>
+        </button>
         <button id="settings-btn" class="btn ghost icon-only" title="ตั้งค่า" aria-label="ตั้งค่า">
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
         </button>
@@ -138,6 +141,62 @@
           </button>
         </header>
         <div class="settings-body" id="settings-body"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Guide: cards per menu with short videos, and a spotlight tour -->
+  <div id="guide" class="guide hidden" role="dialog" aria-modal="true" aria-labelledby="guide-title">
+    <div class="guide-window">
+      <header class="guide-hero">
+        <div class="mascot big" aria-hidden="true"></div>
+        <div class="guide-hero-text">
+          <h2 id="guide-title">คู่มือการใช้งาน</h2>
+          <p>สวัสดี! เรา "น้องค้น" จะพาดูว่าแต่ละเมนูใช้ยังไง กดการ์ดเพื่อดูวิดีโอสั้นๆ ได้เลย</p>
+          <div class="btn-row">
+            <button type="button" class="btn primary" id="guide-tour">เริ่มทัวร์ 1 นาที</button>
+            <button type="button" class="btn secondary" id="guide-close-2">ไว้ทีหลัง</button>
+          </div>
+        </div>
+        <button type="button" class="btn ghost icon-only sm guide-x" id="guide-close" title="ปิด (Esc)" aria-label="ปิด">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+        </button>
+      </header>
+      <div class="guide-body">
+        <div class="guide-grid" id="guide-grid"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Spotlight tour -->
+  <div id="tour" class="tour hidden" aria-live="polite">
+    <div class="tour-spot" id="tour-spot"></div>
+    <div class="tour-bubble" id="tour-bubble" role="dialog" aria-labelledby="tour-title">
+      <div class="mascot small" aria-hidden="true"></div>
+      <div class="tour-content">
+        <div class="tour-step" id="tour-step"></div>
+        <strong id="tour-title"></strong>
+        <p id="tour-text"></p>
+        <div class="tour-nav">
+          <button type="button" class="btn ghost sm" id="tour-skip">ข้าม</button>
+          <span class="tour-dots" id="tour-dots"></span>
+          <button type="button" class="btn secondary sm" id="tour-back">ย้อน</button>
+          <button type="button" class="btn primary sm" id="tour-next">ถัดไป</button>
+        </div>
+      </div>
+    </div>
+    <div class="confetti" id="confetti" aria-hidden="true"></div>
+  </div>
+
+  <!-- First-visit invitation -->
+  <div id="welcome" class="welcome hidden" role="status">
+    <div class="mascot small" aria-hidden="true"></div>
+    <div>
+      <strong>ใช้ครั้งแรกใช่ไหม?</strong>
+      <p>ให้ "น้องค้น" พาทัวร์สั้นๆ ไหม ใช้เวลาแค่ 1 นาที</p>
+      <div class="btn-row">
+        <button type="button" class="btn primary sm" id="welcome-yes">พาทัวร์เลย</button>
+        <button type="button" class="btn ghost sm" id="welcome-no">ไม่เป็นไร</button>
       </div>
     </div>
   </div>

@@ -170,6 +170,7 @@ class ProcessIndexer(Indexer):
             self.last_stats = stats
             self.running = False
             self.worker_pid = None
+            self.db.invalidate()  # cached result lists are out of date now
             self.progress = {"phase": "idle"}
         log.info("indexed (worker): %s", stats)
         return stats
