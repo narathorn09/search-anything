@@ -14,6 +14,7 @@ crate-type = ["cdylib", "rlib"]
 calamine = { version = "0.37", features = ["dates"] }
 roxmltree = "0.21"
 zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+cfb = "0.16"
 
 [dependencies.pyo3]
 version = "0.30"

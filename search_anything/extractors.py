@@ -24,7 +24,8 @@ log = logging.getLogger(__name__)
 # Bump when extraction improves, so already-indexed files are read again once.
 # v3: PDFs read with pdfium (much faster) and Thai text repaired.
 # v4: Thai syllables duplicated by Chrome/Skia PDFs removed; line-break hyphens kept.
-EXTRACTOR_VERSION = 4
+# v5: old Office formats (.doc, .xls, .ppt) read.
+EXTRACTOR_VERSION = 5
 
 MAX_CONTENT_BYTES = 20 * 1024 * 1024  # don't read content of files bigger than this
 MAX_TEXT_CHARS = 500_000  # cap stored text per file
@@ -55,9 +56,9 @@ ODF_EXTENSIONS = {".odt", ".ods", ".odp", ".odg"}
 # Shown in the UI / README.
 SUPPORTED = {
     "ข้อความและโค้ด": "txt, md, csv, json, yaml, xml, log, โค้ดกว่า 80 ภาษา, Dockerfile, Makefile และไฟล์ข้อความอื่นๆ",
-    "เอกสาร": "pdf, docx, rtf, odt, epub, html",
-    "ตาราง": "xlsx, xlsm, ods, csv, tsv",
-    "สไลด์": "pptx, odp",
+    "เอกสาร": "pdf, docx, doc (Word 97-2003), rtf, odt, epub, html",
+    "ตาราง": "xlsx, xlsm, xls (Excel 97-2003), ods, csv, tsv",
+    "สไลด์": "pptx, ppt (PowerPoint 97-2003), odp",
     "อื่นๆ": "eml (อีเมล), ipynb (Jupyter), zip (รายชื่อไฟล์ข้างใน)",
     "ภาพสแกน (OCR)": "PDF ที่สแกนมา และข้อความในรูปภาพ jpg, png, gif, tiff (ตั้งค่าในหัวข้อ OCR) — ต้องมี Tesseract",
 }
@@ -302,6 +303,21 @@ def _xlsx(path: Path) -> str:
     return out.text()
 
 
+def py_excel_value(value: float, date: bool = False, epoch_1904: bool = False) -> str:
+    """A number cell as openpyxl + str() print it (ints for whole numbers); a
+    date-formatted one as datetime/time text. Used for .xls (xlrd gives floats)."""
+    if date:
+        from openpyxl.utils.datetime import MAC_EPOCH, WINDOWS_EPOCH, from_excel
+
+        try:
+            return str(from_excel(value, MAC_EPOCH if epoch_1904 else WINDOWS_EPOCH))
+        except (OverflowError, ValueError):
+            return py_excel_value(value)
+    if value == int(value) and abs(value) < 1e16:
+        return str(int(value))
+    return repr(float(value))
+
+
 def _pptx(path: Path) -> str:
     from pptx import Presentation
 
@@ -446,21 +462,50 @@ def _with_native(native_fn, python_fn):
     return handler
 
 
-if _native is not None:
+def _doc(path: Path) -> str:
+    from .legacy import doc_text
+
+    return doc_text(path, MAX_TEXT_CHARS)
+
+
+def _xls(path: Path) -> str:
+    from .legacy import xls_text
+
+    return xls_text(path, MAX_TEXT_CHARS)
+
+
+def _ppt(path: Path) -> str:
+    from .legacy import ppt_text
+
+    return ppt_text(path, MAX_TEXT_CHARS)
+
+
+if _native is not None and hasattr(_native, "doc_text"):
     _docx_fast = _with_native(_native.docx_text, _docx)
     _xlsx_fast = _with_native(_native.xlsx_text, _xlsx)
     _pptx_fast = _with_native(_native.pptx_text, _pptx)
+    _doc_fast = _with_native(_native.doc_text, _doc)
+    _xls_fast = _with_native(_native.xls_text, _xls)
+    _ppt_fast = _with_native(_native.ppt_text, _ppt)
+elif _native is not None:  # an older build of the module (before .doc/.xls/.ppt)
+    _docx_fast = _with_native(_native.docx_text, _docx)
+    _xlsx_fast = _with_native(_native.xlsx_text, _xlsx)
+    _pptx_fast = _with_native(_native.pptx_text, _pptx)
+    _doc_fast, _xls_fast, _ppt_fast = _doc, _xls, _ppt
 else:
     _docx_fast, _xlsx_fast, _pptx_fast = _docx, _xlsx, _pptx
+    _doc_fast, _xls_fast, _ppt_fast = _doc, _xls, _ppt
 
 HANDLERS = {
     ".pdf": _pdf, ".docx": _docx_fast, ".xlsx": _xlsx_fast, ".xlsm": _xlsx_fast, ".pptx": _pptx_fast,
+    ".doc": _doc_fast, ".dot": _doc_fast, ".xls": _xls_fast, ".xlt": _xls_fast,
+    ".ppt": _ppt_fast, ".pps": _ppt_fast, ".pot": _ppt_fast,
     ".rtf": _rtf, ".epub": _epub, ".eml": _eml, ".ipynb": _ipynb, ".zip": _zip,
     **{e: _html for e in HTML_EXTENSIONS}, **{e: _odf for e in ODF_EXTENSIONS},
 }
 
 
-OFFICE_EXTENSIONS = {".docx", ".xlsx", ".xlsm", ".pptx"}
+OFFICE_EXTENSIONS = {".docx", ".xlsx", ".xlsm", ".pptx", ".doc", ".dot", ".xls", ".xlt", ".ppt", ".pps", ".pot"}
 
 
 def is_heavy(path: str) -> bool:

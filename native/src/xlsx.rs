@@ -2,7 +2,7 @@
 //! `extractors._xlsx`: per worksheet "# title", then each row's non-empty
 //! cells joined with "\t", values printed the way Python's str() prints them.
 
-use calamine::{open_workbook, Data, Reader, SheetType, Xlsx};
+use calamine::{open_workbook, Data, Reader, SheetType, Xls, Xlsx};
 
 use crate::{Collector, Result};
 
@@ -60,6 +60,11 @@ fn micro_suffix(us: i64) -> String {
 
 /// openpyxl `from_excel` + Python str(): datetime, time or timedelta text.
 pub fn py_excel_date(value: f64, duration: bool) -> String {
+    py_excel_date_epoch(value, duration, false)
+}
+
+/// Same, choosing the workbook's date system (1904 = old Mac Excel).
+pub fn py_excel_date_epoch(value: f64, duration: bool, is_1904: bool) -> String {
     if duration {
         // timedelta(days=value), rounded to milliseconds when it has microseconds.
         let total_us = (value * 86_400_000_000.0).round() as i64;
@@ -86,14 +91,15 @@ pub fn py_excel_date(value: f64, duration: bool) -> String {
         let (h, m, s) = (ms / 3_600_000, ms / 60_000 % 60, ms / 1000 % 60);
         return format!("{}:{}:{}{}", two(h), two(m), two(s), micro_suffix(ms % 1000 * 1000));
     }
-    if value > 0.0 && value < 60.0 {
+    if value > 0.0 && value < 60.0 && !is_1904 {
         day += 1.0;
     }
-    // 1899-12-30 + day days + ms
+    // epoch (1899-12-30, or 1904-01-01) + day days + ms
     let total_ms = (day as i64) * 86_400_000 + ms;
     let days = total_ms.div_euclid(86_400_000);
     let rest = total_ms.rem_euclid(86_400_000);
-    let (y, mo, d) = civil_from_days(days - 25_569); // days since 1970-01-01
+    let epoch = if is_1904 { -24_107 } else { -25_569 }; // days from 1970-01-01
+    let (y, mo, d) = civil_from_days(days + epoch);
     format!("{:04}-{}-{} {}:{}:{}{}", y, two(mo), two(d), two(rest / 3_600_000), two(rest / 60_000 % 60),
             two(rest / 1000 % 60), micro_suffix(rest % 1000 * 1000))
 }
@@ -125,6 +131,51 @@ fn cell_text(cell: &Data) -> Option<String> {
         Data::Error(e) => e.to_string(),
     };
     if s.is_empty() { None } else { Some(s) }
+}
+
+/// .xls cells, like xlrd + the Python reader: every date-formatted number is a
+/// date (xlrd has no separate duration type), in the workbook's date system.
+fn xls_cell_text(cell: &Data) -> Option<String> {
+    match cell {
+        Data::DateTime(dt) => {
+            let v = dt.as_f64();
+            // calamine keeps the 1904 flag private; its datetime reveals it.
+            let is_1904 = dt
+                .as_datetime()
+                .map(|d| {
+                    let days = d.and_utc().timestamp().div_euclid(86_400) + 25_569;
+                    (days as f64 - v).abs() > 1000.0
+                })
+                .unwrap_or(false);
+            Some(py_excel_date_epoch(v, false, is_1904))
+        }
+        other => cell_text(other),
+    }
+}
+
+pub fn extract_xls(path: &str, cap: usize) -> Result<String> {
+    let mut wb: Xls<_> = open_workbook(path)?;
+    let sheets: Vec<String> = wb
+        .sheets_metadata()
+        .iter()
+        .filter(|s| s.typ == SheetType::WorkSheet)
+        .map(|s| s.name.clone())
+        .collect();
+    let mut out = Collector::new(cap);
+    for name in sheets {
+        out.add(format!("# {name}"));
+        let range = wb.worksheet_range(&name)?;
+        for row in range.rows() {
+            let cells: Vec<String> = row.iter().filter_map(xls_cell_text).collect();
+            if !cells.is_empty() {
+                out.add(cells.join("\t"));
+            }
+            if out.full() {
+                break;
+            }
+        }
+    }
+    Ok(out.text())
 }
 
 pub fn extract(path: &str, cap: usize) -> Result<String> {
