@@ -123,3 +123,30 @@ def test_upgrade_reads_old_files_again(tmp_path):
     assert ix.run().added_or_updated == 1  # unchanged on disk, but read again once
     assert [r["title"] for r in db.search("ค่าเช่าสำนักงาน")] == ["budget.xlsx"]
     assert ix.run().added_or_updated == 0  # …and only once
+
+
+def test_thai_duplicate_syllables_from_chrome_pdfs():
+    """Chrome (Skia) PDFs with Thai in a monospace font: pdfium returned
+    "ผู้ใผู้ ช้" for "ผู้ใช้" (the copy sits inside the first syllable, plus an
+    invented space). Character boxes below are from such a PDF."""
+    from search_anything.extractors import repair_thai_chars
+
+    chars = [
+        ("ผ", 57.6, 58.8, False), ("ู", 58.8, 60.0, False), ("้", 60.0, 61.2, False),
+        ("ใ", 62.0, 64.9, False),
+        ("ผ", 59.2, 59.9, False), ("ู", 59.9, 60.5, False), ("้", 60.5, 61.2, False),  # the copy
+        (" ", 61.9, 61.9, True),  # invented by pdfium
+        ("ช", 65.5, 67.6, False), ("้", 67.6, 69.8, False),
+        (" ", 70.5, 70.5, True),  # a real word gap (also "invented" in Chrome PDFs)
+        ("ด", 71.0, 72.0, False), ("ู", 72.0, 72.5, False),
+        ("น", 73.0, 74.0, False), ("า", 74.0, 75.0, False), ("น", 75.0, 76.0, False),
+    ]
+    assert repair_thai_chars(chars) == "ผู้ใช้ ดูนาน"
+
+
+def test_repeated_syllables_side_by_side_are_kept():
+    from search_anything.extractors import repair_thai_chars
+
+    # "ดีดี" written twice on purpose: the second sits to the right, not inside.
+    chars = [("ด", 0, 1, False), ("ี", 1, 2, False), ("ด", 2, 3, False), ("ี", 3, 4, False)]
+    assert repair_thai_chars(chars) == "ดีดี"
