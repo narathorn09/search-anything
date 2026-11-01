@@ -67,6 +67,13 @@
             <span id="result-title"></span>
             <span class="col-tools">
               <span id="result-count" class="secondary"></span>
+              <span class="date-wrap">
+                <button type="button" id="date-btn" class="sort-btn" aria-haspopup="menu" aria-expanded="false" title="ช่วงเวลาที่แก้ไข">
+                  <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>
+                  <span id="date-label">ทุกช่วงเวลา</span>
+                </button>
+                <div id="date-menu" class="menu hidden" role="menu"></div>
+              </span>
               <span class="sort-wrap">
                 <button type="button" id="sort-btn" class="sort-btn" aria-haspopup="menu" aria-expanded="false" title="เรียงลำดับ">
                   <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4v16M3.5 16.5 7 20l3.5-3.5M14 6h7M14 11h5M14 16h3"/></svg>
@@ -76,6 +83,7 @@
               </span>
             </span>
           </div>
+          <div id="folder-panel" class="folder-panel hidden" aria-label="โฟลเดอร์ที่ค้นหา"></div>
           <div id="type-chips" class="type-chips hidden" role="group" aria-label="ประเภทไฟล์"></div>
           <ul id="results"></ul>
         </section>

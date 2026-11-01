@@ -181,6 +181,21 @@ def _quit(server) -> None:
     server.should_exit = True
 
 
+def choose_folder() -> str | None:
+    """The system's "choose folder" window, over the app window. None when cancelled."""
+    import webview
+
+    if not webview.windows:
+        raise RuntimeError("no app window")
+    kind = getattr(getattr(webview, "FileDialog", None), "FOLDER", None)
+    if kind is None:  # pywebview < 5
+        kind = webview.FOLDER_DIALOG
+    result = webview.windows[0].create_file_dialog(kind)
+    if not result:
+        return None
+    return result[0] if isinstance(result, (list, tuple)) else str(result)
+
+
 def show_window(url: str) -> bool:
     """Run the app window until it is closed. False if no window could be shown."""
     if os.environ.get("CAHON_NO_WINDOW") == "1":  # tests / CI: browser mode

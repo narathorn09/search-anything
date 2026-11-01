@@ -214,8 +214,10 @@ class Reader:
         return proc.returncode == 0
 
     # -------------------------------------------------------------------- pdf
-    def read_pdf(self, path: str, max_pages: int) -> tuple[str, int]:
-        """Text of the scanned pages, and how many pages were read with OCR."""
+    def read_pdf(self, path: str, max_pages: int, force: bool = False) -> tuple[str, int]:
+        """Text of the scanned pages, and how many pages were read with OCR.
+        ``force`` reads every page, also those with a text layer (a broken or
+        partial text layer, or text drawn as pictures), more carefully."""
         import pypdfium2 as pdfium
 
         with PDFIUM_LOCK:
@@ -232,7 +234,7 @@ class Reader:
                         textpage.close()
                     finally:
                         page.close()
-                    if chars < TEXT_PAGE_CHARS:
+                    if force or chars < TEXT_PAGE_CHARS:
                         scans.append(i)
                     if len(scans) >= max_pages:
                         break
@@ -252,7 +254,7 @@ class Reader:
                         bitmap.close()
                     finally:
                         page.close()
-                text = clean(self._tesseract(image))
+                text = self._read_picture(image) if force else clean(self._tesseract(image))
                 image.close()
                 if text:
                     parts.append(f"--- หน้า {i + 1} ---\n{text}" if total > 1 else text)
@@ -303,9 +305,9 @@ class Reader:
         second = clean(self._tesseract(page, ("-c", "thresholding_method=1")))
         return merge_passes(text, second)
 
-    def read(self, path: str, max_pages: int = DEFAULT_MAX_PAGES) -> tuple[str, int]:
+    def read(self, path: str, max_pages: int = DEFAULT_MAX_PAGES, force: bool = False) -> tuple[str, int]:
         if os.path.splitext(path)[1].lower() in PDF_EXTENSIONS:
-            return self.read_pdf(path, max_pages)
+            return self.read_pdf(path, max_pages, force)
         return self.read_image(path, max_pages)
 
 
