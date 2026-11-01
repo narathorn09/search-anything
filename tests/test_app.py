@@ -338,3 +338,17 @@ def test_path_map_parsing():
     from search_anything.__main__ import _parse_path_map
     assert _parse_path_map("/host/Documents=/Users/me/Documents;/host/Work=D:\\Work;;bad") == [
         ("/host/Documents", "/Users/me/Documents"), ("/host/Work", "D:\\Work")]
+
+
+def test_pages_may_only_talk_to_this_app(tmp_path):
+    """Content-Security-Policy: the browser refuses scripts, fonts, images and
+    connections from anywhere else; no Referer leaks when opening bookmarks."""
+    c = TestClient(create_app(Config(data_dir=tmp_path / "data", allowed_hosts=["testserver"],
+                                     background_indexing=False)))
+    for path in ("/", "/api/status"):
+        h = c.get(path).headers
+        assert "connect-src 'self'" in h["content-security-policy"]
+        assert "default-src 'self'" in h["content-security-policy"]
+        assert h["referrer-policy"] == "no-referrer"
+    assert c.get("/docs").status_code == 404  # its page loads scripts from a CDN
+    assert c.get("/openapi.json").status_code == 404
