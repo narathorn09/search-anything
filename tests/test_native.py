@@ -1,7 +1,7 @@
-"""The Rust readers (sa_native) must give exactly the text the Python readers give.
+"""The Rust readers (cahon_native) must give exactly the text the Python readers give.
 
 Each test builds a document with the tricky parts of its format, then compares
-the two readers character by character. Skipped when sa_native is not built
+the two readers character by character. Skipped when cahon_native is not built
 (`pip install ./native`, needs Rust).
 """
 
@@ -12,9 +12,9 @@ from pathlib import Path
 
 import pytest
 
-from search_anything import extractors as ex
+from cahon import extractors as ex
 
-native = pytest.importorskip("sa_native")
+native = pytest.importorskip("cahon_native")
 CAP = ex.MAX_TEXT_CHARS
 
 

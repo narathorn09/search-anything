@@ -71,7 +71,7 @@ def _helper_init() -> None:
 
 
 def _helper_extract(path: str, size: int) -> str:
-    if os.environ.get("SA_TEST_HELPER_CRASH_ON") == os.path.basename(path):  # test-suite only
+    if os.environ.get("CAHON_TEST_HELPER_CRASH_ON") == os.path.basename(path):  # test-suite only
         os._exit(3)
     return extract_text(Path(path), size)
 

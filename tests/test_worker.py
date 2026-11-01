@@ -6,10 +6,10 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from search_anything.app import Config, create_app
-from search_anything.db import Database
-from search_anything.indexer import ScanSettings
-from search_anything.worker import ProcessIndexer
+from cahon.app import Config, create_app
+from cahon.db import Database
+from cahon.indexer import ScanSettings
+from cahon.worker import ProcessIndexer
 
 
 @pytest.fixture
@@ -65,7 +65,7 @@ def test_stop_ends_the_worker_and_keeps_partial_index(tmp_path, files):
 
 
 def test_worker_crash_restarts_and_skips_the_bad_file(tmp_path, files, monkeypatch):
-    monkeypatch.setenv("SA_TEST_WORKER_CRASH_ON", "poison.txt")
+    monkeypatch.setenv("CAHON_TEST_WORKER_CRASH_ON", "poison.txt")
     db = Database(tmp_path / "t.db")
     ix = ProcessIndexer(db, [str(files)])
     stats = ix.run()
@@ -109,7 +109,7 @@ def test_pdf_helper_crash_restarts_carefully_and_keeps_every_file(tmp_path, file
         pdf.new_page(595, 842).close()
         pdf.save(str(files / name))
         pdf.close()
-    monkeypatch.setenv("SA_TEST_HELPER_CRASH_ON", "boom.pdf")
+    monkeypatch.setenv("CAHON_TEST_HELPER_CRASH_ON", "boom.pdf")
     db = Database(tmp_path / "t.db")
     ix = ProcessIndexer(db, [str(files)], ScanSettings(profile="fast", ocr=False))
     stats = ix.run()

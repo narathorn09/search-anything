@@ -1,5 +1,5 @@
 @echo off
-rem Search Anything - one-step start for Windows. Double-click this file.
+rem CAHON - one-step start for Windows. Double-click this file.
 rem Uses Docker Desktop when it is running, otherwise Python (.venv).
 rem Options: --docker  --no-docker  --folder D:\Work  (and app options)
 cd /d "%~dp0"

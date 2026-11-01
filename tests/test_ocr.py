@@ -7,10 +7,10 @@ from pathlib import Path
 
 import pytest
 
-from search_anything import ocr
-from search_anything.db import Database
-from search_anything.extractors import extract_text, normalize_thai
-from search_anything.indexer import Indexer, ScanSettings
+from cahon import ocr
+from cahon.db import Database
+from cahon.extractors import extract_text, normalize_thai
+from cahon.indexer import Indexer, ScanSettings
 
 THAI_FONT = "/usr/share/fonts/opentype/tlwg/Loma.otf"
 needs_tesseract = pytest.mark.skipif(not ocr.engine().available, reason="tesseract not installed")
@@ -58,7 +58,7 @@ def test_candidates():
 
 
 def test_missing_tesseract_keeps_scanning(tmp_path, monkeypatch):
-    monkeypatch.setenv("SA_TESSERACT", str(tmp_path / "nope"))
+    monkeypatch.setenv("CAHON_TESSERACT", str(tmp_path / "nope"))
     try:
         assert not ocr.engine(max_age=0).available
         docs = tmp_path / "docs"
@@ -69,7 +69,7 @@ def test_missing_tesseract_keeps_scanning(tmp_path, monkeypatch):
         assert stats.ocr_files == 0 and db.counts()["file"] == 1
         assert db.search("scan")  # still found by name
     finally:
-        monkeypatch.delenv("SA_TESSERACT")
+        monkeypatch.delenv("CAHON_TESSERACT")
         ocr.engine(max_age=0)
 
 
@@ -157,7 +157,7 @@ def test_thai_scan(tmp_path):
 
 @needs_tesseract
 def test_ocr_in_worker_process(tmp_path):
-    from search_anything.worker import ProcessIndexer
+    from cahon.worker import ProcessIndexer
 
     docs = tmp_path / "docs"
     docs.mkdir()

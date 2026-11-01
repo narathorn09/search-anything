@@ -435,15 +435,15 @@ def _zip(path: Path) -> str:
 
 
 # ---------------------------------------------------------- native (Rust)
-# The optional `sa_native` module (native/ in this repo, written in Rust) gives
+# The optional `cahon_native` module (native/ in this repo, written in Rust) gives
 # exactly the same text for Word/Excel/PowerPoint files, 6-30x faster and
 # without holding the GIL, so scan threads really run in parallel. Without it
-# (or with SA_NATIVE=0) the Python readers above are used. If the Rust reader
+# (or with CAHON_NATIVE=0) the Python readers above are used. If the Rust reader
 # fails on a file, the Python reader gets a try too.
 try:
-    if os.environ.get("SA_NATIVE", "1") == "0":
-        raise ImportError("disabled by SA_NATIVE=0")
-    import sa_native as _native
+    if os.environ.get("CAHON_NATIVE", "1") == "0":
+        raise ImportError("disabled by CAHON_NATIVE=0")
+    import cahon_native as _native
 except ImportError:
     _native = None
 

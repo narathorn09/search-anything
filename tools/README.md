@@ -2,7 +2,7 @@
 
 ## record-guide-videos.js
 
-อัดวิดีโอสั้นของแต่ละเมนูที่แสดงในคู่มือของแอป (`search_anything/static/guide/*.mp4` และภาพหน้าปก `*.jpg`)
+อัดวิดีโอสั้นของแต่ละเมนูที่แสดงในคู่มือของแอป (`cahon/static/guide/*.mp4` และภาพหน้าปก `*.jpg`)
 
 ต้องมี: Node.js, Playwright (`npm i playwright` แล้ว `npx playwright install chromium`) และ ffmpeg
 

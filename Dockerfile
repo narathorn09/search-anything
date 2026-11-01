@@ -1,4 +1,4 @@
-# Search Anything — server mode image.
+# CAHON — server mode image.
 # Data (notes, passwords, uploads, index) lives in /data: mount a persistent
 # volume there, or it is lost when the container is replaced.
 # Stage 1: the Rust text readers (native/), built as a Python wheel.
@@ -25,18 +25,18 @@ RUN pip install -r requirements.txt
 COPY --from=native /wheels /wheels
 RUN pip install /wheels/*.whl && rm -rf /wheels
 
-COPY search_anything ./search_anything
+COPY cahon ./cahon
 
 # Run as an unprivileged user that owns /data.
 RUN useradd --uid 10001 --no-create-home --shell /usr/sbin/nologin app \
     && mkdir -p /data && chown 10001:10001 /data
 USER 10001
 
-ENV SA_MODE=server \
-    SA_DATA_DIR=/data \
-    SA_PORT=8765
+ENV CAHON_MODE=server \
+    CAHON_DATA_DIR=/data \
+    CAHON_PORT=8765
 VOLUME ["/data"]
 EXPOSE 8765
 
-# SA_PASSWORD (login password) must be provided at runtime.
-CMD ["python", "-m", "search_anything"]
+# CAHON_PASSWORD (login password) must be provided at runtime.
+CMD ["python", "-m", "cahon"]

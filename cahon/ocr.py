@@ -80,7 +80,7 @@ _engine_lock = threading.Lock()
 
 
 def _find_binary() -> str | None:
-    env = os.environ.get("SA_TESSERACT")
+    env = os.environ.get("CAHON_TESSERACT")
     if env:
         return env if Path(env).is_file() else None
     found = shutil.which("tesseract")
@@ -162,7 +162,7 @@ class Reader:
     # -------------------------------------------------------------- tesseract
     def _tesseract(self, image, extra: tuple[str, ...] = ()) -> str:
         """Text of one image, without the lines Tesseract is unsure of (see keep_confident)."""
-        fd, tmp = tempfile.mkstemp(prefix="sa-ocr-", suffix=".png")
+        fd, tmp = tempfile.mkstemp(prefix="cahon-ocr-", suffix=".png")
         os.close(fd)
         base = tmp[:-4] + "-out"
         try:

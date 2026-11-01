@@ -18,7 +18,7 @@ from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 
 from .db import Database
 
-_CHECK_TOKEN = b"search-anything-vault-check"
+_CHECK_TOKEN = b"cahon-vault-check"
 SCRYPT_N = 2**15
 
 

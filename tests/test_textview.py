@@ -2,8 +2,8 @@ import time
 
 import pytest
 
-from search_anything import textview
-from search_anything.textview import LineIndex, LineIndexCache
+from cahon import textview
+from cahon.textview import LineIndex, LineIndexCache
 
 
 def test_range_reads_match_python_lines(tmp_path):

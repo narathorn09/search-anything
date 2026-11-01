@@ -1,6 +1,6 @@
 """Run a built desktop app and check it really works (used by CI on Windows/macOS).
 
-    python tools/smoke_desktop.py "dist/Search Anything/Search Anything.exe"
+    python tools/smoke_desktop.py "dist/CAHON/CAHON.exe"
 
 Starts the app with a temporary home folder (Documents = tests/fixtures) in
 browser mode, waits for the first scan and OCR, then searches Thai words from
@@ -31,10 +31,10 @@ def main() -> int:
     if hasattr(sys.stdout, "reconfigure"):  # Windows consoles default to cp1252: print Thai safely
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     exe = Path(sys.argv[1]).resolve()
-    tmp = Path(tempfile.mkdtemp(prefix="sa-smoke-"))
+    tmp = Path(tempfile.mkdtemp(prefix="cahon-smoke-"))
     home, data = tmp / "home", tmp / "data"
     shutil.copytree(ROOT / "tests" / "fixtures", home / "Documents")
-    env = {**os.environ, "HOME": str(home), "USERPROFILE": str(home), "SA_DATA_DIR": str(data), "SA_NO_WINDOW": "1"}
+    env = {**os.environ, "HOME": str(home), "USERPROFILE": str(home), "CAHON_DATA_DIR": str(data), "CAHON_NO_WINDOW": "1"}
     proc = subprocess.Popen([str(exe)], env=env)
     ok = False
     try:

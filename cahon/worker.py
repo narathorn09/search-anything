@@ -107,7 +107,7 @@ def worker_main(args: dict, conn, stop_event) -> None:
     ix.skip = {path: (v["mtime"], v["size"]) for path, v in args["skip"].items()}
     ix.careful = args["careful"]
     ix.exit_on_helper_crash = True  # the supervisor restarts in careful mode
-    crash_on = os.environ.get("SA_TEST_WORKER_CRASH_ON")  # used by the test-suite only
+    crash_on = os.environ.get("CAHON_TEST_WORKER_CRASH_ON")  # used by the test-suite only
 
     def before_extract(path: str) -> None:
         if ix.careful:
@@ -214,7 +214,7 @@ class ProcessIndexer(Indexer):
     def _run_worker(self, args: dict, hard_ram: int, restarts: int, careful: bool) -> dict:
         parent, child = _CTX.Pipe(duplex=False)
         proc = _CTX.Process(target=worker_main, args=(args, child, self._stop), daemon=True,
-                            name="search-anything-scan")
+                            name="cahon-scan")
         proc.start()
         child.close()
         self.worker_pid = proc.pid
