@@ -609,7 +609,13 @@ mark { background: var(--color-mark); color: inherit; border-radius: 3px; paddin
 .gcard p { margin: 0; font-size: 13.5px; color: var(--color-text-secondary); line-height: 1.55; }
 .gcard .gmedia { position: relative; aspect-ratio: 16 / 10; border-radius: var(--radius-element); overflow: hidden;
   background: var(--color-background-muted); cursor: pointer; }
-.gcard video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.gcard .gmedia { display: block; width: 100%; padding: 0; border: 0; font: inherit; }
+.gcard .gmedia img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform .5s var(--ease-out-expo); }
+.gcard .gmedia:hover img { transform: scale(1.04); }
+.gcard .gbig { position: absolute; right: 8px; bottom: 8px; display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px 3px 6px;
+  border-radius: 999px; background: rgb(0 0 0 / .62); color: #fff; font-size: 12px; opacity: 0; transition: opacity .2s; }
+.gcard .gbig .icon { width: 13px; height: 13px; }
+.gcard .gmedia:hover .gbig, .gcard .gmedia:focus-visible .gbig { opacity: 1; }
 .gcard .play { position: absolute; inset: 0; display: grid; place-items: center; background: rgb(0 0 0 / .08); transition: opacity .2s; }
 .gcard .play span { width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center; background: rgb(255 255 255 / .92);
   color: #171717; box-shadow: var(--shadow-med); transition: transform .35s var(--ease-spring); }
@@ -862,10 +868,16 @@ dialog .note { font-size: var(--text-supporting); color: var(--color-text-second
 .empty-mascot { width: 96px; height: 96px; margin: 0 auto 10px; }
 
 /* ====================================================== file type chips */
-.type-chips { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding: 2px 1px 6px; flex-shrink: 0; }
+/* All chips stay visible: they wrap onto a second line instead of running
+   off the edge. Phones keep one sliding row, faded at the edge so it shows more. */
+.type-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 1px 8px; flex-shrink: 0; }
+@media (max-width: 640px) {
+  .type-chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding-right: 24px;
+    mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); }
+}
 .type-chips::-webkit-scrollbar { display: none; }
 .type-chip {
-  display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; height: 30px; padding: 0 11px;
+  display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; height: 28px; padding: 0 10px;
   border-radius: 999px; border: 1px solid var(--color-border); background: var(--color-background-surface);
   font-size: 13px; color: var(--color-text-secondary); cursor: pointer; white-space: nowrap;
   transition: background-color var(--duration-fast) var(--ease-standard), border-color var(--duration-fast), color var(--duration-fast);
@@ -962,6 +974,9 @@ dialog .note { font-size: var(--text-supporting); color: var(--color-text-second
   @keyframes live-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(26, 127, 55, .45); } 50% { box-shadow: 0 0 0 5px rgba(26, 127, 55, 0); } }
 }
 @media (max-width: 640px) {
+  .fp-folders { flex-wrap: nowrap; overflow-x: auto; max-height: none; scrollbar-width: none; padding-right: 24px;
+    mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); }
+  .fp-folder { flex-shrink: 0; }
   .fp-head { flex-wrap: wrap; }
   .fp-actions { width: 100%; }
   .fp-actions .btn { flex: 1; }
@@ -989,4 +1004,37 @@ dialog .note { font-size: var(--text-supporting); color: var(--color-text-second
 @media (max-width: 640px) {
   #date-btn[aria-pressed="false"] #date-label { display: none; } /* icon only until a range is chosen */
   #date-btn { padding: 0 8px; }
+}
+
+/* =========================================== guide video, large (lightbox) */
+.vbox { position: fixed; inset: 0; z-index: 600; display: grid; place-items: center; padding: 16px;
+  background: rgb(0 0 0 / .72); backdrop-filter: blur(3px); }
+.vbox-window { width: min(1280px, 100%, calc((100vh - 190px) * 1.6 + 32px)); max-height: 100%; display: grid; gap: 10px;
+  padding: 14px 16px 16px; border-radius: var(--radius-frame); background: var(--color-background-surface); box-shadow: var(--shadow-high); }
+.vbox-window header { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.vbox-window header .tile { --tile: 36px; }
+.vbox-title { flex: 1; min-width: 0; display: grid; }
+.vbox-title h3 { margin: 0; font-size: 18px; font-weight: 500; color: var(--color-text-heading); }
+.vbox-title span { font-size: 12.5px; color: var(--color-text-secondary); }
+.vbox-video { position: relative; aspect-ratio: 16 / 10; border-radius: var(--radius-element); overflow: hidden; background: #111; }
+.vbox-video video { width: 100%; height: 100%; display: block; object-fit: contain; background: #111; }
+.vbox-video:fullscreen { border-radius: 0; aspect-ratio: auto; }
+.vbox-missing { margin: 0; height: 100%; display: grid; place-items: center; color: #aaa; }
+.vbox-window > p { margin: 0; font-size: 14.5px; line-height: 1.6; color: var(--color-text-secondary); }
+.vbox-window footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.vbox-dots { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
+.vbox-dots button { width: 9px; height: 9px; padding: 0; border: 0; border-radius: 50%; background: var(--color-border-emphasized); cursor: pointer; }
+.vbox-dots button.on { width: 22px; border-radius: 999px; background: var(--color-accent); }
+@media (prefers-reduced-motion: no-preference) {
+  .vbox { animation: fade-in .2s ease both; }
+  .vbox-window { animation: pop-in .32s var(--ease-out-expo) both; }
+}
+@media (max-width: 640px) {
+  .vbox { padding: 0; }
+  .vbox-window { border-radius: 0; height: 100%; align-content: center; }
+}
+@media (max-width: 640px) {
+  .vbox-dots { gap: 4px; }
+  .vbox-dots button { width: 7px; height: 7px; }
+  .vbox-dots button.on { width: 16px; }
 }
