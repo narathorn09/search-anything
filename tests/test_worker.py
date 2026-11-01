@@ -99,3 +99,23 @@ def test_app_uses_worker_process_and_clear_endpoint(tmp_path):
     st = c.get("/api/status").json()["indexing"]
     assert st["worker"] == "process" and st["skipped"] == []
     assert c.delete("/api/scan/skipped").json() == {"cleared": 0}
+
+
+def test_pdf_helper_crash_restarts_carefully_and_keeps_every_file(tmp_path, files, monkeypatch):
+    import pypdfium2 as pdfium
+
+    for name in ("a.pdf", "boom.pdf", "c.pdf"):
+        pdf = pdfium.PdfDocument.new()
+        pdf.new_page(595, 842).close()
+        pdf.save(str(files / name))
+        pdf.close()
+    monkeypatch.setenv("SA_TEST_HELPER_CRASH_ON", "boom.pdf")
+    db = Database(tmp_path / "t.db")
+    ix = ProcessIndexer(db, [str(files)], ScanSettings(profile="fast", ocr=False))
+    stats = ix.run()
+    # A PDF helper process died: the worker restarted one file at a time
+    # (in-process, where this file reads fine) and nothing was lost.
+    assert stats.restarts >= 1 and stats.stopped is False
+    assert db.counts()["file"] == 3004
+    assert [r["title"] for r in db.search("boom")] == ["boom.pdf"]
+    assert ix.skipped_files() == {}

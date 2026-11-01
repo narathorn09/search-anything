@@ -61,6 +61,11 @@ def worker_main(args: dict, conn, stop_event) -> None:
     """Entry point of the worker process."""
     logging.basicConfig(level=logging.WARNING)
     lower_process_priority()
+    # The supervisor starts this process as a daemon (it must not outlive the
+    # app). Daemons may not start child processes; the PDF helper pool needs
+    # to, so clear the flag here, inside the worker. If the worker is killed,
+    # its helpers see their pipe close and exit too.
+    mp.current_process()._config["daemon"] = False
     send_lock = threading.Lock()
 
     def send(kind: str, payload) -> None:
@@ -71,6 +76,7 @@ def worker_main(args: dict, conn, stop_event) -> None:
     ix = Indexer(db, args["folders"], ScanSettings.from_dict(args["settings"]), stop_event=stop_event)
     ix.skip = {path: (v["mtime"], v["size"]) for path, v in args["skip"].items()}
     ix.careful = args["careful"]
+    ix.exit_on_helper_crash = True  # the supervisor restarts in careful mode
     crash_on = os.environ.get("SA_TEST_WORKER_CRASH_ON")  # used by the test-suite only
 
     def before_extract(path: str) -> None:
@@ -220,7 +226,14 @@ class ProcessIndexer(Indexer):
                 if watch is not None and now >= next_check:
                     next_check = now + 0.25
                     try:
-                        ram = watch.memory_info().rss / 1e6
+                        # The worker and its helpers (PDF readers, OCR) together.
+                        ram = watch.memory_info().rss
+                        for kid in watch.children(recursive=True):
+                            try:
+                                ram += kid.memory_info().rss
+                            except psutil.Error:
+                                pass
+                        ram /= 1e6
                         self.progress["worker_ram_mb"] = round(ram)
                         if ram > hard_ram:
                             reason = f"RAM {ram:.0f} MB เกินเพดาน {hard_ram} MB"

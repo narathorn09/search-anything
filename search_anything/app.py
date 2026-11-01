@@ -25,6 +25,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from .db import Database
 from .extractors import MAX_TEXT_CHARS, SUPPORTED, is_plain_text_type
 from .textview import LineIndex, LineIndexCache
+from . import ocr
 from .indexer import Indexer, ScanSettings
 from .worker import ProcessIndexer
 from .resources import CONTAINER, CPU_COUNT, PROFILES, ram_limits_mb
@@ -81,6 +82,9 @@ class ScanSettingsIn(BaseModel):
     profile: Literal["eco", "balanced", "fast"]
     auto: bool
     interval_minutes: int = Field(ge=1, le=24 * 60)
+    ocr: bool = True
+    ocr_images: bool = False
+    ocr_max_pages: int = Field(default=100, ge=1, le=2000)
 
 
 # ----------------------------------------------------------------- helpers
@@ -460,8 +464,13 @@ def create_app(config: Config) -> FastAPI:
     @app.put("/api/scan/settings", dependencies=[Depends(require_auth)])
     def scan_settings_update(data: ScanSettingsIn):
         settings = ScanSettings.from_dict(data.model_dump())
+        before = indexer.settings
         db.set_meta("scan_settings", data.model_dump())
         indexer.update_settings(settings)
+        more_ocr = settings.ocr and (not before.ocr or (settings.ocr_images and not before.ocr_images)
+                                     or settings.ocr_max_pages > before.ocr_max_pages)
+        if more_ocr and ocr.engine().available and not indexer.running:
+            indexer.trigger()  # read the newly included files now (unchanged files are skipped)
         return indexer.status()["settings"]
 
     @app.put("/api/folders", dependencies=[Depends(require_auth), Depends(require_local)])
@@ -524,6 +533,8 @@ def create_app(config: Config) -> FastAPI:
         # Index right away so the files are searchable when the request returns.
         ids = await run_in_threadpool(indexer.index_paths, [str(p) for p in saved])
         db.invalidate()
+        if indexer.settings.ocr and any(ocr.is_candidate(str(p), indexer.settings.ocr_images) for p in saved):
+            indexer.trigger()  # scanned uploads are read with OCR in the background
         return {"saved": [p.name for p in saved], "items": [serialize(db.get_item(i)) for i in ids]}
 
     # ------------------------------------------------------------- ui

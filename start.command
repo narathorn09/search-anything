@@ -79,6 +79,23 @@ run_venv() {
     .venv/bin/python -m pip install --quiet -r requirements.txt
     echo "$HASH" > .venv/.requirements.sha
   fi
+  # Fast Rust readers for Word/Excel/PowerPoint (optional; needs Rust to build once).
+  NATIVE_HASH="$(.venv/bin/python -c "import hashlib, pathlib; print(hashlib.sha256(b''.join(p.read_bytes() for p in sorted(pathlib.Path('native').rglob('*')) if p.is_file() and 'target' not in p.parts)).hexdigest())")"
+  if [ ! -f .venv/.native.sha ] || [ "$(cat .venv/.native.sha)" != "$NATIVE_HASH" ]; then
+    if command -v cargo >/dev/null 2>&1 || [ -x "$HOME/.cargo/bin/cargo" ]; then
+      say "Building the fast file readers (Rust, first time only)…"
+      if PATH="$HOME/.cargo/bin:$PATH" .venv/bin/python -m pip install --quiet ./native; then
+        echo "$NATIVE_HASH" > .venv/.native.sha
+      else
+        echo "Could not build them — using the Python readers (slower, same results)."
+      fi
+    else
+      echo "Tip: install Rust (https://rustup.rs) for ~3x faster scanning of Word/Excel/PowerPoint files (or run with Docker)."
+    fi
+  fi
+  if ! command -v tesseract >/dev/null 2>&1 && [ ! -x /opt/homebrew/bin/tesseract ] && [ ! -x /usr/local/bin/tesseract ]; then
+    echo "Tip: to search scanned PDFs (OCR), install Tesseract:  brew install tesseract tesseract-lang   (or run with Docker)"
+  fi
   say "Starting Search Anything (Python)…   data: ./data   stop: Ctrl+C"
   ARGS=(--port "$PORT" --open-browser)
   if [ ${#FOLDERS[@]} -eq 0 ]; then ARGS+=(--default-folders); else for f in "${FOLDERS[@]}"; do ARGS+=(--folder "$f"); done; fi

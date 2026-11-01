@@ -8,3 +8,4 @@ tests
 *.db-shm
 .venv
 venv
+native/target
