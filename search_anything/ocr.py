@@ -31,7 +31,7 @@ from .extractors import PDFIUM_LOCK, normalize_thai
 log = logging.getLogger(__name__)
 
 PDF_EXTENSIONS = {".pdf"}
-IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp"}
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp", ".gif"}
 DPI = 300
 MAX_SIDE_PX = 4200  # pages larger than ~A3 at 300 dpi are scaled down
 MIN_IMAGE_SIDE = 200  # icons and thumbnails are skipped
@@ -161,35 +161,57 @@ class Reader:
 
     # -------------------------------------------------------------- tesseract
     def _tesseract(self, image) -> str:
+        """Text of one image, without the lines Tesseract is unsure of (see keep_confident)."""
         fd, tmp = tempfile.mkstemp(prefix="sa-ocr-", suffix=".png")
         os.close(fd)
+        base = tmp[:-4] + "-out"
         try:
             image.save(tmp, "PNG", compress_level=1)
-            env = {**os.environ, "OMP_THREAD_LIMIT": str(self.threads)}
-            proc = subprocess.Popen([self.eng.path, tmp, "stdout", "-l", self.eng.lang, "--psm", "3"],
-                                    stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=env,
-                                    **_low_priority())
-            started = time.monotonic()
-            while True:
-                try:
-                    out, _ = proc.communicate(timeout=0.3)
-                    break
-                except subprocess.TimeoutExpired:
-                    if self.should_stop():
-                        proc.kill()
-                        proc.communicate()
-                        raise Stopped()
-                    if time.monotonic() - started > PAGE_TIMEOUT:
-                        proc.kill()
-                        proc.communicate()
-                        log.warning("OCR page timed out")
-                        return ""
-            return out.decode("utf-8", errors="replace")
-        finally:
+            # One pass writes both the text (.txt) and per-word confidence (.tsv).
+            if not self._run([self.eng.path, tmp, base, "-l", self.eng.lang, "--psm", "3", "txt", "tsv"]):
+                return ""
             try:
-                os.unlink(tmp)
+                text = Path(base + ".txt").read_text(encoding="utf-8", errors="replace")
+            except OSError:  # no "txt"/"tsv" configs in this Tesseract: plain text
+                return self._plain(tmp)
+            try:
+                tsv = Path(base + ".tsv").read_text(encoding="utf-8", errors="replace")
             except OSError:
-                pass
+                return text
+            return keep_confident(text, tsv)
+        finally:
+            for f in (tmp, base + ".txt", base + ".tsv"):
+                try:
+                    os.unlink(f)
+                except OSError:
+                    pass
+
+    def _plain(self, image_path: str) -> str:
+        out = self._run([self.eng.path, image_path, "stdout", "-l", self.eng.lang, "--psm", "3"], capture=True)
+        return out or ""
+
+    def _run(self, cmd: list[str], capture: bool = False):
+        env = {**os.environ, "OMP_THREAD_LIMIT": str(self.threads)}
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE if capture else subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL, env=env, **_low_priority())
+        started = time.monotonic()
+        while True:
+            try:
+                out, _ = proc.communicate(timeout=0.3)
+                break
+            except subprocess.TimeoutExpired:
+                if self.should_stop():
+                    proc.kill()
+                    proc.communicate()
+                    raise Stopped()
+                if time.monotonic() - started > PAGE_TIMEOUT:
+                    proc.kill()
+                    proc.communicate()
+                    log.warning("OCR page timed out")
+                    return None
+        if capture:
+            return out.decode("utf-8", errors="replace")
+        return proc.returncode == 0
 
     # -------------------------------------------------------------------- pdf
     def read_pdf(self, path: str, max_pages: int) -> tuple[str, int]:
@@ -269,6 +291,49 @@ class Reader:
         if os.path.splitext(path)[1].lower() in PDF_EXTENSIONS:
             return self.read_pdf(path, max_pages)
         return self.read_image(path, max_pages)
+
+
+MIN_LINE_CONFIDENCE = 60  # mean Tesseract confidence (0-100) a line needs to be kept
+
+
+def keep_confident(text: str, tsv: str) -> str:
+    """Drop the lines Tesseract is unsure of.
+
+    Photos without text (leaves, fabric, faces…) come out as junk like
+    "Say | ri , 7 ด 8" with confidence 0-50, while real text scores 80-97.
+    Tesseract writes the non-empty lines of ``text`` in the same order as the
+    line records of ``tsv``; each line's mean word confidence (weighted by
+    length) decides. If the two do not line up, the text is kept as it is.
+    """
+    lines: dict[tuple, list[tuple[float, int]]] = {}
+    order: list[tuple] = []
+    for row in tsv.splitlines()[1:]:
+        cols = row.split("\t")
+        if len(cols) < 12:
+            continue
+        key = tuple(cols[1:5])  # page, block, paragraph, line
+        if cols[0] == "4":
+            order.append(key)
+            lines[key] = []
+        elif cols[0] == "5" and cols[11].strip() and key in lines:
+            try:
+                conf = float(cols[10])
+            except ValueError:
+                continue
+            if conf >= 0:
+                lines[key].append((conf, len(cols[11].strip())))
+    scored = [lines[k] for k in order if lines[k]]
+    out_lines = text.splitlines()
+    non_empty = [i for i, line in enumerate(out_lines) if line.strip()]
+    if len(non_empty) != len(scored):
+        return text
+    drop = set()
+    for i, words in zip(non_empty, scored):
+        total = sum(n for _, n in words)
+        mean = sum(c * n for c, n in words) / total if total else 0
+        if mean < MIN_LINE_CONFIDENCE or not any(ch.isalnum() for ch in out_lines[i]):
+            drop.add(i)
+    return "\n".join(line for i, line in enumerate(out_lines) if i not in drop)
 
 
 def merge(body: str, ocr_text: str) -> str:

@@ -512,9 +512,13 @@ async function showDetail(id) {
       btn("ดูเนื้อหา", () => openViewer(item), "secondary", "lines"),
       btn("คัดลอก path", () => copy(item.path, "คัดลอก path แล้ว"), "secondary", "copy"),
       item.uploaded ? btn("ลบไฟล์", () => deleteItem(item), "danger", "trash") : null));
+    const isImage = /\.(png|jpe?g|gif|webp|bmp)$/i.test(item.title);
+    if (isImage) parts.push(el("img", { class: "preview", src: `/api/files/${item.id}/preview`, alt: item.title, loading: "lazy" }));
     parts.push(item.content
-      ? el("pre", {}, highlight(item.content.slice(0, 20000), t))
-      : el("p", { class: "secondary" }, "ไม่มีเนื้อหาที่อ่านได้ (ค้นได้จากชื่อไฟล์)"));
+      ? el("pre", {}, highlight(item.content.slice(0, 20000).trimStart(), t))
+      : el("p", { class: "secondary" }, isImage || /\.(tiff?)$/i.test(item.title)
+        ? "ไม่พบข้อความในรูปนี้ (หรือยังอ่านไม่ถึง: การอ่านข้อความในรูปทำเบื้องหลังหลังสแกนเสร็จ)"
+        : "ไม่มีเนื้อหาที่อ่านได้ (ค้นได้จากชื่อไฟล์)"));
     box.append(...parts.map((p, i) => withReveal(p, i)));
     return;
   }
@@ -1382,7 +1386,7 @@ function ocrRows(s, ix) {
     state,
     pref("อ่าน PDF ที่เป็นภาพสแกน", "หน้าที่ไม่มีข้อความ (สแกน/ถ่ายรูปเอกสาร) จะถูกอ่านด้วย OCR แล้วค้นหาได้เหมือนข้อความปกติ",
       toggle(set.ocr, (v) => saveScanSettings({ ocr: v }), "อ่าน PDF ที่เป็นภาพสแกน")),
-    pref("อ่านรูปภาพด้วย", "jpg, png, tiff, bmp, webp · ช้ากว่าและอาจอ่านรูปถ่ายทั่วไปด้วย เหมาะกับโฟลเดอร์รูปถ่ายเอกสาร",
+    pref("อ่านข้อความในรูปภาพ", "jpg, png, gif, tiff, bmp, webp เช่น รูปถ่ายเอกสาร ภาพหน้าจอ สลิป · รูปที่ไม่มีตัวหนังสือ (คน วิว) จะถูกข้ามเอง เพราะเก็บเฉพาะบรรทัดที่อ่านได้ชัด",
       toggle(set.ocr_images, (v) => saveScanSettings({ ocr_images: v }), "อ่านรูปภาพด้วย")),
     pref("จำนวนหน้าสูงสุดต่อไฟล์", "ประมาณ 1–2 วินาทีต่อหน้า",
       segmented([[20, "20 หน้า"], [100, "100 หน้า"], [500, "500 หน้า"]], set.ocr_max_pages, (v) => saveScanSettings({ ocr_max_pages: v }))),
