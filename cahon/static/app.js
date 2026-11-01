@@ -36,6 +36,8 @@ const ICONS = {
   plus: '<path d="M12 5v14M5 12h14"/>',
   filter: '<path d="M4 5h16l-6 7.5V19l-4 1.5v-8z"/>',
   sort: '<path d="M7 4v16M3.5 16.5 7 20l3.5-3.5M14 6h7M14 11h5M14 16h3"/>',
+  expand: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
+  calendar: '<rect x="3.5" y="5" width="17" height="15" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
   play: '<path d="M8 5.5v13l11-6.5z" fill="currentColor"/>',
   pointer: '<path d="M6 3l12 7-5.5 1.5L10 17z"/><path d="m12.5 11.5 5 5"/>',
 };
@@ -1406,23 +1408,29 @@ document.querySelectorAll(".mascot").forEach((m) => { m.innerHTML = mascotSvg(m.
 const GUIDE = [
   { key: "search", icon: "search", color: "file", title: "ค้นหาทุกอย่าง", target: ".input.search",
     text: "พิมพ์คำเดียว เจอทั้งชื่อไฟล์ เนื้อหาในไฟล์ โน้ต ลิงก์ และรหัสผ่าน ภาษาไทยที่เขียนติดกันก็เจอ กด / เพื่อเริ่มพิมพ์ได้ทันที" },
+  { key: "folders", icon: "folder", color: "bookmark", title: "เลือกโฟลเดอร์ที่ค้นหา", target: "#folder-panel",
+    text: "หน้าแรกบอกว่าค้นในโฟลเดอร์ไหน มีกี่ไฟล์ และกำลังสแกนโฟลเดอร์ไหนอยู่ กด เพิ่มโฟลเดอร์ เพื่อเลือกโฟลเดอร์ใหม่ หรือ × เพื่อเอาออก" },
   { key: "add", icon: "plus", color: "note", title: "เพิ่มข้อมูล", target: "#add-btn",
     text: "ปุ่ม เพิ่ม: อัปโหลดไฟล์ จดโน้ต เก็บลิงก์ หรือเก็บรหัสผ่าน ทุกอย่างค้นเจอทันทีที่บันทึก" },
   { key: "upload", icon: "upload", color: "bookmark", title: "อัปโหลด & ลากวาง", target: "#main",
     text: "ลากไฟล์จากเครื่องมาวางตรงไหนก็ได้ในหน้า มีแถบความคืบหน้า และค้นเนื้อหาในไฟล์ได้ทันที" },
-  { key: "filters", icon: "filter", color: "password", title: "เลือกประเภท", target: "#filters",
-    text: "ทั้งหมด / ไฟล์ / โน้ต / ลิงก์ / รหัสผ่าน ถ้ายังไม่พิมพ์จะเห็นรายการล่าสุดของประเภทนั้น" },
-  { key: "detail", icon: "open", color: "file", title: "รายละเอียด & เปิดไฟล์", target: "#results",
-    text: "คลิกผลลัพธ์เพื่อดูรายละเอียด ดับเบิลคลิกหรือกด Enter เพื่อเปิดไฟล์ เปิดลิงก์ หรือคัดลอกรหัสผ่าน" },
-  { key: "viewer", icon: "lines", color: "note", title: "ดูเนื้อหา & ไปบรรทัดที่เจอ", target: "#results",
+  { key: "filters", icon: "filter", color: "password", title: "เลือกหมวด", target: "#filters",
+    text: "ทั้งหมด / ไฟล์ / โน้ต / ลิงก์ / รหัสผ่าน ถ้ายังไม่พิมพ์จะเห็นรายการล่าสุดของหมวดนั้น" },
+  { key: "refine", icon: "calendar", color: "file", title: "กรองประเภทไฟล์ & ช่วงเวลา", target: "#type-chips",
+    text: "กดปุ่ม PDF · Word · Excel · รูปภาพ … เลือกได้หลายอย่าง และปุ่ม ช่วงเวลา: วันนี้ 7 วัน 30 วัน ปีนี้ หรือเลือกวันที่เอง ตัวเลขบอกจำนวนที่เจอ" },
+  { key: "detail", icon: "open", color: "note", title: "รายละเอียด & เปิดไฟล์", target: "#results",
+    text: "คลิกผลลัพธ์เพื่อดูรายละเอียด ชื่อ ขนาด วันที่ อยู่ด้านบนเสมอ ดับเบิลคลิกหรือกด Enter เพื่อเปิดไฟล์ เปิดลิงก์ หรือคัดลอกรหัสผ่าน" },
+  { key: "viewer", icon: "lines", color: "bookmark", title: "ดูเนื้อหา & ไปบรรทัดที่เจอ", target: "#results",
     text: "ปุ่ม ดูเนื้อหา แสดงไฟล์พร้อมเลขบรรทัด บอกว่าเจอกี่ครั้งในกี่บรรทัด กดรายการเพื่อกระโดดไปบรรทัดนั้น" },
-  { key: "sort", icon: "sort", color: "bookmark", title: "เรียงลำดับ", target: "#sort-btn",
+  { key: "ocr", icon: "scan", color: "password", title: "อ่านภาพสแกนด้วย OCR", target: "#results",
+    text: "PDF สแกนและรูปภาพถูกอ่านเองหลังสแกน ถ้าไฟล์ไหนข้อความไม่ครบ เปิดรายละเอียดแล้วกด อ่านด้วย OCR น้องจะอ่านใหม่ทุกหน้าให้" },
+  { key: "sort", icon: "sort", color: "file", title: "เรียงลำดับ", target: "#sort-btn",
     text: "เกี่ยวข้องที่สุด แก้ไขล่าสุด เก่าสุด ชื่อ ขนาด หรือประเภท ระบบจำค่าที่เลือกไว้ให้" },
   { key: "vault", icon: "lock", color: "password", title: "ตู้รหัสผ่าน", target: "#vault-btn",
     text: "รหัสผ่านถูกเข้ารหัสด้วย master password ปลดล็อกแล้วคัดลอกได้ในคลิกเดียว ล็อกเองเมื่อไม่ได้ใช้" },
-  { key: "scan", icon: "activity", color: "file", title: "การสแกนไฟล์", target: "#settings-btn",
+  { key: "scan", icon: "activity", color: "note", title: "การสแกนไฟล์", target: "#settings-btn",
     text: "ดูสถานะสด หยุด/เริ่มสแกน และเลือกโหมด ประหยัด/สมดุล/เร็วสุด เพื่อไม่ให้เครื่องหน่วง" },
-  { key: "settings", icon: "palette", color: "note", title: "ปรับหน้าตา", target: "#settings-btn",
+  { key: "settings", icon: "palette", color: "bookmark", title: "ปรับหน้าตา", target: "#settings-btn",
     text: "ธีม สี ขนาดตัวอักษร ซ่อนส่วนที่ไม่ใช้ หรือเลือกแบบเรียบ กดคืนค่าเริ่มต้นได้ทุกเมื่อ" },
 ];
 
@@ -1434,18 +1442,19 @@ function guideTile(g) {
 
 function renderGuide() {
   const cards = GUIDE.map((g, i) => {
-    const video = el("video", { muted: "", loop: "", playsinline: "", preload: "none",
-      poster: `/static/guide/${g.key}.jpg`, src: `/static/guide/${g.key}.mp4` });
-    video.muted = true;
-    const media = el("div", { class: "gmedia", title: "ดูวิดีโอ",
-      onclick: () => { if (video.paused) { video.play(); media.classList.add("playing"); } else { video.pause(); media.classList.remove("playing"); } } },
-      video, el("div", { class: "play" }, el("span", {}, icon("play"))));
-    video.addEventListener("error", () => media.remove()); // video not available
+    // The card shows the poster; the video plays large (openVideo).
+    const img = el("img", { src: `/static/guide/${g.key}.jpg`, alt: "", loading: "lazy" });
+    const media = el("button", { type: "button", class: "gmedia", title: `ดูวิดีโอ: ${g.title}`, "aria-label": `ดูวิดีโอ: ${g.title}`,
+      onclick: () => openVideo(i) },
+      img, el("div", { class: "play" }, el("span", {}, icon("play"))), el("span", { class: "gbig" }, icon("expand"), "จอใหญ่"));
+    img.addEventListener("error", () => media.remove()); // no video for this one
     return el("article", { class: "gcard", style: `--i:${i}` },
       el("div", { class: "gtop" }, guideTile(g), el("h3", {}, g.title)),
       media,
       el("p", {}, g.text),
-      el("div", { class: "gfoot" }, btn("ชี้ให้ดู", () => { closeGuide(); startTour([tourStepFor(g)]); }, "secondary sm", "pointer")));
+      el("div", { class: "gfoot" },
+        btn("ดูวิดีโอ", () => openVideo(i), "secondary sm", "play"),
+        btn("ชี้ให้ดู", () => { closeGuide(); startTour([tourStepFor(g)]); }, "ghost sm", "pointer")));
   });
   cards.push(el("article", { class: "gcard", style: `--i:${GUIDE.length}` },
     el("div", { class: "gtop" }, guideTile({ color: "upload", icon: "keyboard" }), el("h3", {}, "คีย์ลัด")),
@@ -1455,6 +1464,65 @@ function renderGuide() {
         .map(([a, k]) => el("div", {}, el("span", {}, a), el("kbd", {}, k)))),
     el("p", {}, "ทุกอย่างทำได้ด้วยคีย์บอร์ด ไม่ต้องจับเมาส์เลย")));
   $("#guide-grid").replaceChildren(...cards);
+}
+
+// ------------------------------------------------- guide videos, large
+/* A video from the guide on (almost) the whole screen, with controls,
+   previous / next, and the browser's own full screen. */
+const videoBoxOpen = () => !!document.querySelector(".vbox");
+
+function openVideo(i) {
+  closeVideo();
+  const n = GUIDE.length;
+  i = (i + n) % n;
+  const g = GUIDE[i];
+  const video = el("video", { controls: "", autoplay: "", playsinline: "", preload: "auto",
+    poster: `/static/guide/${g.key}.jpg`, src: `/static/guide/${g.key}.mp4` });
+  video.muted = true; // autoplay is allowed when muted (the videos have no sound)
+  const frame = el("div", { class: "vbox-video" }, video);
+  const full = () => {
+    const target = frame.requestFullscreen ? frame : video;
+    (target.requestFullscreen || target.webkitRequestFullscreen || video.webkitEnterFullscreen)?.call(target);
+  };
+  const dots = el("div", { class: "vbox-dots" }, GUIDE.map((x, k) => el("button", {
+    type: "button", class: k === i ? "on" : "", title: x.title, "aria-label": x.title, onclick: () => openVideo(k) })));
+  const box = el("div", { class: "vbox", role: "dialog", "aria-modal": "true", "aria-label": g.title,
+    onclick: (e) => { if (e.target === box) closeVideo(); } },
+    el("div", { class: "vbox-window" },
+      el("header", {}, guideTile(g),
+        el("div", { class: "vbox-title" }, el("h3", {}, g.title), el("span", {}, `วิดีโอ ${i + 1} จาก ${n}`)),
+        btn("เต็มจอ", full, "ghost sm", "expand", { title: "เต็มจอ (F)" }),
+        btn("", closeVideo, "ghost icon-only sm", "close", { title: "ปิด (Esc)", "aria-label": "ปิด" })),
+      frame,
+      el("p", {}, g.text),
+      el("footer", {},
+        btn("ก่อนหน้า", () => openVideo(i - 1), "secondary sm", null, { title: "ก่อนหน้า (←)" }),
+        dots,
+        btn("ถัดไป", () => openVideo(i + 1), "secondary sm", null, { title: "ถัดไป (→)" }))));
+  box.dataset.index = i;
+  box.full = full;
+  document.body.append(box);
+  video.addEventListener("error", () => frame.replaceChildren(el("p", { class: "vbox-missing" }, "ไม่มีวิดีโอนี้")));
+  box.querySelector(".vbox-window .close")?.focus();
+}
+
+function closeVideo() {
+  const box = document.querySelector(".vbox");
+  if (!box) return;
+  box.querySelector("video")?.pause();
+  if (document.fullscreenElement) document.exitFullscreen?.();
+  box.remove();
+}
+
+function videoKeys(e) {
+  const box = document.querySelector(".vbox");
+  const i = Number(box.dataset.index);
+  if (e.key === "Escape") { if (!document.fullscreenElement) closeVideo(); }
+  else if (e.key === "ArrowRight") openVideo(i + 1);
+  else if (e.key === "ArrowLeft") openVideo(i - 1);
+  else if (e.key.toLowerCase() === "f") box.full();
+  else if (e.key === " ") { const v = box.querySelector("video"); if (v) { e.preventDefault(); v.paused ? v.play() : v.pause(); } }
+  else return;
 }
 
 function openGuide() {
@@ -1468,6 +1536,7 @@ function openGuide() {
 }
 
 function closeGuide() {
+  closeVideo();
   if (!guideOpen()) return;
   $("#guide").classList.add("hidden");
   $("#guide-grid").replaceChildren(); // stops videos
@@ -2253,6 +2322,7 @@ document.addEventListener("keydown", (e) => {
     else if (e.key === "ArrowLeft") $("#tour-back").click();
     return;
   }
+  if (videoBoxOpen()) { videoKeys(e); return; }
   if (guideOpen()) {
     if (e.key === "Escape") closeGuide();
     return;

@@ -86,6 +86,49 @@ async function type(page, selector, text) {
 
 // -------------------------------------------------------------- scenarios
 const SCENARIOS = {
+  async folders(p) {
+    await caption(p, "หน้าแรกบอกว่าค้นหาในโฟลเดอร์ไหน และแต่ละโฟลเดอร์มีกี่ไฟล์");
+    await moveTo(p, "#folder-panel .fp-folder >> nth=0");
+    await p.waitForTimeout(1800);
+    await caption(p, "กด เพิ่มโฟลเดอร์ (ในแอปจะเปิดหน้าต่างเลือกโฟลเดอร์ของเครื่อง)");
+    await click(p, '#folder-panel button:has-text("เพิ่มโฟลเดอร์")', { after: 1200 });
+    await caption(p, "เลือกโฟลเดอร์ที่อยากให้ค้นหา");
+    await click(p, '.fb-dir:has-text("โปรเจกต์ลูกค้า")', { after: 1100 });
+    await click(p, '#modal button[type=submit]', { after: 700 });
+    await caption(p, "น้องเริ่มสแกนโฟลเดอร์ใหม่ให้ทันที", 2600);
+    await caption(p, "กด × เพื่อเอาโฟลเดอร์ออกได้ (ไฟล์ในเครื่องไม่ถูกลบ)");
+    await moveTo(p, "#folder-panel .fp-folder:has-text(\"โปรเจกต์ลูกค้า\") .fp-remove");
+    await p.waitForTimeout(1800);
+  },
+  async refine(p) {
+    await type(p, "#q", "ค่าเช่า");
+    await caption(p, "ปุ่มประเภทไฟล์ บอกว่าเจอประเภทละกี่ไฟล์");
+    await click(p, '#type-chips .type-chip[data-type="excel"]', { after: 1400 });
+    await caption(p, "เลือกได้หลายประเภทพร้อมกัน");
+    await click(p, '#type-chips .type-chip[data-type="word"]', { after: 1500 });
+    await click(p, '#type-chips .type-chip[data-type=""]', { after: 900 });
+    await caption(p, "ปุ่ม ช่วงเวลา: ดูเฉพาะที่แก้ไขช่วงที่ต้องการ");
+    await click(p, "#date-btn", { after: 900 });
+    await click(p, '#date-menu .menu-item:has-text("7 วันล่าสุด")', { after: 1600 });
+    await caption(p, "หรือเลือกวันที่เอง");
+    await click(p, "#date-btn", { after: 700 });
+    await click(p, '#date-menu .menu-item:has-text("กำหนดเอง")', { after: 1300 });
+    await click(p, '#modal button[type=submit]', { after: 1500 });
+    await caption(p, "กด ทุกช่วงเวลา เพื่อล้างตัวกรอง");
+    await click(p, "#date-btn", { after: 600 });
+    await click(p, '#date-menu .menu-item:has-text("ทุกช่วงเวลา")', { after: 1500 });
+  },
+  async ocr(p) {
+    await type(p, "#q", "ใบแจ้งหนี้");
+    await click(p, "#results li.row >> nth=0", { dx: 0.3, after: 1200 });
+    await caption(p, "ไฟล์สแกนบางไฟล์ อาจยังอ่านข้อความได้ไม่ครบ", 1800);
+    await caption(p, "กด อ่านด้วย OCR น้องจะอ่านให้ทุกหน้า");
+    await click(p, '.ocr-box button:has-text("อ่านด้วย OCR")', { after: 600 });
+    await p.waitForSelector('.ocr-box:has-text("อ่านได้")', { timeout: 60000 });
+    await caption(p, "อ่านเสร็จ ข้อความในภาพค้นหาได้แล้ว", 2400);
+    await type(p, "#q", "INV-2024");
+    await caption(p, "ค้นด้วยเลขที่ในใบแจ้งหนี้ก็เจอ", 2000);
+  },
   async search(p) {
     await caption(p, "พิมพ์ในช่องค้นหาช่องเดียว");
     await type(p, "#q", "ค่าเช่า");
@@ -187,8 +230,11 @@ const SCENARIOS = {
     await caption(p, "ตู้ล็อกเองเมื่อไม่ได้ใช้ 15 นาที", 1600);
   },
   async scan(p) {
-    await caption(p, "ระหว่างสแกน มุมซ้ายล่างจะบอกความคืบหน้า");
     await p.waitForSelector("#scan-pill:not(.hidden)", { timeout: 15000 });
+    await caption(p, "หน้าแรกบอกว่ากำลังสแกนโฟลเดอร์ไหน ไปถึงไหนแล้ว");
+    await moveTo(p, "#folder-panel .fp-head");
+    await p.waitForTimeout(2400);
+    await caption(p, "มุมซ้ายล่างก็บอกความคืบหน้า");
     await moveTo(p, "#scan-pill-open");
     await p.waitForTimeout(1200);
     await click(p, "#scan-pill-open", { after: 1400 });
@@ -215,12 +261,16 @@ const SCENARIOS = {
   },
 };
 
+// Same order as the guide in the app (GUIDE in cahon/static/app.js).
+const ORDER = ["search", "folders", "add", "upload", "filters", "refine", "detail", "viewer", "ocr", "sort", "vault", "scan", "settings"];
+
 // ------------------------------------------------------------------ main
 (async () => {
   fs.mkdirSync(OUT, { recursive: true });
   const tmp = fs.mkdtempSync(path.join(require("os").tmpdir(), "guide-rec-"));
   const browser = await chromium.launch();
-  for (const [key, run] of Object.entries(SCENARIOS)) {
+  for (const key of ORDER) {
+    const run = SCENARIOS[key];
     if (ONLY.length && !ONLY.includes(key)) continue;
     const ctx = await browser.newContext({ viewport: SIZE, recordVideo: { dir: tmp, size: SIZE }, deviceScaleFactor: 1 });
     await ctx.addInitScript(() => { localStorage.setItem("cahon-tour-done", "1"); });
@@ -238,9 +288,9 @@ const SCENARIOS = {
     await ctx.close();
     const webm = await video.path();
     const mp4 = path.join(OUT, `${key}.mp4`);
-    // H.264 for every browser; trim the blank first second; small file.
-    execFileSync("ffmpeg", ["-y", "-loglevel", "error", "-ss", "1", "-i", webm, "-vf", "scale=960:-2,fps=24",
-      "-c:v", "libx264", "-preset", "slow", "-crf", "30", "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-an", mp4]);
+    // H.264 for every browser, full 1280×800 (the guide plays it large); trim the blank first second.
+    execFileSync("ffmpeg", ["-y", "-loglevel", "error", "-ss", "1", "-i", webm, "-vf", "fps=30",
+      "-c:v", "libx264", "-preset", "slow", "-crf", "26", "-tune", "animation", "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-an", mp4]);
     execFileSync("ffmpeg", ["-y", "-loglevel", "error", "-sseof", "-1.2", "-i", mp4, "-frames:v", "1", "-q:v", "4",
       path.join(OUT, `${key}.jpg`)]);
     console.log(`✓ ${key}: ${(fs.statSync(mp4).size / 1024).toFixed(0)} KB`);
