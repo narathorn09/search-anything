@@ -6,6 +6,10 @@ const KIND_LABEL = { file: "ไฟล์", note: "โน้ต", bookmark: "ล�
 
 // Simple stroke icons (24×24), drawn for this app.
 const ICONS = {
+  folder: '<path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2.2h7a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  x: '<path d="M6 6l12 12M18 6 6 18"/>',
+  up: '<path d="M12 19V5M6 11l6-6 6 6"/>',
   file: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/>',
   note: '<path d="M5 4h14v11l-5 5H5z"/><path d="M14 20v-5h5M9 9h6M9 12.5h4"/>',
   bookmark: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
@@ -25,6 +29,7 @@ const ICONS = {
   keyboard: '<rect x="2.5" y="6" width="19" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/>',
   activity: '<path d="M3 12h4l3-8 4 16 3-8h4"/>',
   reset: '<path d="M4 12a8 8 0 1 0 2.4-5.7L4 8.5"/><path d="M4 4v4.5h4.5"/>',
+  scan: '<path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2M7 12h10"/>',
   lines: '<path d="M8 6h12M8 12h12M8 18h8"/><path d="M4 6h.01M4 12h.01M4 18h.01"/>',
   check: '<path d="m5 12 5 5 9-10"/>',
   search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
@@ -106,9 +111,11 @@ function highlight(text, terms) {
 }
 
 let toastTimer;
-function toast(msg) {
+/** A short message at the bottom. mood: the mascot beside it ("happy", "sad" …;
+    errors default to "sad" when called as toast(error.message, "sad")). */
+function toast(msg, mood = null) {
   const t = $("#toast");
-  t.textContent = msg;
+  t.replaceChildren(...(mood ? [mascotEl(mood, "tiny")] : []), el("span", {}, msg));
   t.classList.remove("hidden");
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => t.classList.add("hidden"), 2200);
@@ -135,7 +142,8 @@ async function copyText(text) {
 }
 
 async function copy(text, label = "คัดลอกแล้ว") {
-  toast(await copyText(text) ? label : "คัดลอกไม่ได้ ลองเลือกข้อความแล้วกด Ctrl+C");
+  const ok = await copyText(text);
+  toast(ok ? label : "คัดลอกไม่ได้ ลองเลือกข้อความแล้วกด Ctrl+C", ok ? "happy" : "sad");
 }
 
 // The desktop window has no right-click menu of its own (pywebview turns it
@@ -315,6 +323,7 @@ async function search() {
   const seq = ++state.seq;
   const q = $("#q").value.trim();
   for (const ctl of [searchAbort, moreAbort, countAbort]) ctl?.abort(); // drop older requests
+  renderFolderPanel(); // home screen only: hidden once something is typed
   clearTimeout(countTimer);
   if (!q && !prefs.recent && !state.kind) {
     // Settings → "รายการล่าสุด" is off: a blank start until the user types.
@@ -342,7 +351,7 @@ async function search() {
   } catch (e) {
     if (e.name === "AbortError") return;
     if (e.status === 401) return showLogin();
-    toast(e.message);
+    toast(e.message, "sad");
   }
 }
 
@@ -479,6 +488,159 @@ async function pickCustomRange() {
     return { key: "custom", from: v.from, to: v.to };
   }, { submit: "ใช้ช่วงนี้", note: "นับจากวันที่แก้ไขล่าสุดของไฟล์ โน้ต ลิงก์ และรหัสผ่าน" });
   if (picked) setRange(picked);
+}
+
+// --------------------------------------------------- home: folder panel
+/* Before anything is typed, the home screen shows the folders being searched,
+   how many files each has, which one is being scanned right now (with the
+   mascot at work), and a button to add a folder. */
+let foldersAbort = null;
+let foldersLoadedAt = 0;
+
+const folderPanelOn = () => prefs.folderPanel && !$("#q").value.trim() && (state.kind === "" || state.kind === "file");
+
+async function loadFolders() {
+  foldersAbort?.abort();
+  foldersAbort = new AbortController();
+  try {
+    state.folderInfo = await api("/api/folders", { signal: foldersAbort.signal });
+    foldersLoadedAt = Date.now();
+    renderFolderPanel();
+  } catch (e) { /* aborted or failed: the panel just keeps its last state */ }
+}
+
+function renderFolderPanel() {
+  const box = $("#folder-panel");
+  const info = state.folderInfo;
+  if (!folderPanelOn() || !info || !state.status) { box.classList.add("hidden"); return; }
+  const ix = state.status.indexing;
+  const pr = ix.progress || {};
+  const folders = info.folders;
+  const busy = folders.find((f) => f.scanning);
+  const files = folders.reduce((n, f) => n + f.files, 0);
+  const pct = ix.running && pr.total ? Math.floor((pr.done / pr.total) * 100) : null;
+
+  let mood = "idle", title, sub;
+  if (!folders.length) {
+    mood = "sleepy";
+    title = "ยังไม่ได้เลือกโฟลเดอร์";
+    sub = info.can_edit ? "เลือกโฟลเดอร์ที่อยากให้น้องคาหนช่วยค้น แล้วน้องจะสแกนให้เอง"
+      : "โฟลเดอร์ถูกกำหนดตอนเปิดแอป (เช่น --folder) · ยังอัปโหลดไฟล์มาค้นได้";
+  } else if (ix.running) {
+    mood = "working";
+    const where = busy ? busy.name : "โฟลเดอร์";
+    title = pr.phase === "stopping" ? "กำลังหยุดสแกน…"
+      : pr.phase === "ocr" ? `กำลังอ่านภาพสแกนใน ${where}` : `กำลังสแกน ${where}`;
+    sub = pr.phase === "walking" ? `สำรวจแล้ว ${Number(pr.scanned || 0).toLocaleString()} ไฟล์…`
+      : pr.total ? `${pr.done.toLocaleString()} / ${pr.total.toLocaleString()} ไฟล์ · ${pct}%${pr.current ? ` · ${pr.current}` : ""}` : "กำลังเริ่ม…";
+  } else {
+    const last = ix.last;
+    mood = last && Date.now() / 1000 - last.finished_at < 60 && !last.stopped ? "happy" : "idle";
+    title = `ค้นหาใน ${folders.length.toLocaleString()} โฟลเดอร์ · ${files.toLocaleString()} ไฟล์`;
+    sub = last ? `สแกนล่าสุด ${fmtAgo(last.finished_at)}${ix.settings.auto ? ` · สแกนอัตโนมัติทุก ${ix.settings.interval_minutes} นาที` : ""}` : "ยังไม่เคยสแกน";
+  }
+
+  const head = box.querySelector(".fp-head");
+  const mascot = head?.querySelector(".mascot") || mascotEl(mood, "small");
+  setMood(mascot, mood);
+  const actions = el("div", { class: "fp-actions" },
+    info.can_edit ? btn("เพิ่มโฟลเดอร์", addFolder, folders.length ? "secondary sm" : "primary sm", "plus") : null,
+    folders.length && !ix.running ? btn("สแกนเลย", startScan, "ghost sm") : null);
+  const newHead = el("div", { class: "fp-head" }, mascot,
+    el("div", { class: "fp-text" }, el("strong", {}, title), el("span", {}, sub),
+      ix.running ? el("div", { class: `progress${pct == null ? " indeterminate" : ""}` }, el("span", { style: pct == null ? "" : `width:${pct}%` })) : null),
+    actions);
+  const chips = folders.length ? el("ul", { class: "fp-folders" }, folders.map((f) => el("li", {
+    class: `fp-folder${f.scanning ? " scanning" : ""}${f.exists ? "" : " missing"}`, title: f.path,
+  }, f.scanning ? el("span", { class: "dot-live on" }) : icon("folder"),
+  el("span", { class: "name" }, f.name),
+  el("span", { class: "n" }, f.exists ? `${f.files.toLocaleString()} ไฟล์` : "หาไม่เจอ"),
+  info.can_edit ? el("button", { type: "button", class: "fp-remove", title: `เอา ${f.name} ออก`, "aria-label": `เอา ${f.name} ออก`,
+    onclick: () => removeFolder(f) }, icon("x")) : null))) : null;
+  if (head) head.replaceWith(newHead); else box.replaceChildren(newHead);
+  box.querySelector(".fp-folders")?.remove();
+  if (chips) box.append(chips);
+  box.classList.remove("hidden");
+}
+
+const sameOrInside = (child, parent) => {
+  const norm = (p) => p.replace(/[\\/]+$/, "");
+  const c = norm(child), p = norm(parent);
+  return c === p || c.startsWith(p + "/") || c.startsWith(p + "\\");
+};
+
+async function addFolder() {
+  const info = state.folderInfo;
+  let path = null;
+  if (info?.can_pick) { // desktop app: the system's own folder window
+    try {
+      const r = await api("/api/folders/pick", { method: "POST" });
+      if (!r.path) return; // cancelled
+      path = r.path;
+    } catch (e) {
+      if (e.status !== 501) return toast(e.message, "sad");
+    }
+  }
+  if (!path) path = await browseFolder();
+  if (!path) return;
+  const current = info.folders.map((f) => f.path);
+  const parent = current.find((f) => sameOrInside(path, f));
+  if (parent) return toast(`อยู่ในโฟลเดอร์ ${parent} ที่ค้นหาอยู่แล้ว`, "confused");
+  // A folder that contains ones already in the list replaces them.
+  await saveFolders([...current.filter((f) => !sameOrInside(f, path)), path], "เพิ่มโฟลเดอร์แล้ว น้องกำลังสแกนให้เลย");
+}
+
+async function removeFolder(f) {
+  const ok = await modalLoop(`เอา "${f.name}" ออกจากการค้นหา?`, [], () => true,
+    { submit: "เอาออก", note: `${f.path}\nไฟล์ในเครื่องไม่ถูกลบ แค่จะไม่ค้นหาในโฟลเดอร์นี้อีก (ข้อมูลที่สแกนไว้จะถูกล้างตอนสแกนครั้งถัดไป)` });
+  if (!ok) return;
+  await saveFolders(state.folderInfo.folders.filter((x) => x.path !== f.path).map((x) => x.path), "เอาออกแล้ว");
+}
+
+async function saveFolders(list, message) {
+  try {
+    await api("/api/folders", { method: "PUT", body: { folders: list } });
+    toast(message, "happy");
+    await refreshStatus();
+    await loadFolders();
+  } catch (e) { toast(e.message, "sad"); }
+}
+
+/** Choose a folder inside the app (browser mode, or when the system window is not available). */
+function browseFolder() {
+  return new Promise((resolve) => {
+    const dlg = $("#modal");
+    const form = $("#modal-form");
+    let current = null, result = null;
+    const pathLine = el("div", { class: "fb-path" });
+    const list = el("ul", { class: "fb-list" });
+    const roots = el("div", { class: "fb-roots" });
+    const error = el("p", { class: "error" });
+    const upBtn = btn("ขึ้นไป", () => current?.parent && go(current.parent), "ghost sm", "up");
+    async function go(path) {
+      try {
+        const d = await api(`/api/folders/browse?${new URLSearchParams({ path })}`);
+        current = d;
+        error.textContent = "";
+        pathLine.replaceChildren(el("bdi", {}, d.path)); // <bdi>: "/" stays in front despite rtl ellipsis
+        upBtn.disabled = !d.parent;
+        roots.replaceChildren(...d.roots.map((r) => btn(r.name, () => go(r.path), "secondary sm")));
+        list.replaceChildren(...(d.dirs.length ? d.dirs.map((x) => el("li", {}, el("button", {
+          type: "button", class: "fb-dir", ondblclick: () => go(x.path), onclick: () => go(x.path),
+        }, icon("folder"), x.name))) : [el("li", { class: "fb-empty" }, "ไม่มีโฟลเดอร์ย่อย")]));
+        list.scrollTop = 0;
+      } catch (e) { error.textContent = e.message; }
+    }
+    form.replaceChildren(el("h2", {}, "เลือกโฟลเดอร์ที่จะให้ค้นหา"),
+      el("p", { class: "note" }, "เข้าไปในโฟลเดอร์ที่ต้องการ แล้วกด \"เลือกโฟลเดอร์นี้\" · แสดงเฉพาะชื่อโฟลเดอร์"),
+      roots, el("div", { class: "fb-bar" }, upBtn, pathLine), list, error,
+      el("div", { class: "actions-row" }, btn("ยกเลิก", () => dlg.close(), "ghost"),
+        el("button", { type: "submit", class: "btn primary" }, "เลือกโฟลเดอร์นี้")));
+    form.onsubmit = (e) => { e.preventDefault(); result = current?.path || null; dlg.close(); };
+    dlg.onclose = () => { dlg.onclose = null; resolve(result); };
+    dlg.showModal();
+    go("");
+  });
 }
 
 /** Ask for the total a moment after the user stops typing (counting can take a while). */
@@ -628,12 +790,12 @@ function renderResults() {
   const t = terms();
   updateCount();
   if (!state.results.length) {
-    const fresh = !t.length;
-    const mascot = el("div", { class: `mascot empty-mascot${fresh ? "" : " lost"}` });
-    mascot.innerHTML = mascotSvg(); // static, trusted markup
-    ul.append(el("li", { class: "empty reveal" }, mascot,
-      el("strong", {}, fresh ? "พิมพ์เพื่อค้นหา" : "ไม่พบผลลัพธ์"),
-      fresh ? "หรือกด เพิ่ม เพื่ออัปโหลดไฟล์ จดโน้ต เก็บลิงก์ หรือรหัสผ่าน" : "ลองคำอื่น หรือคำที่ยาวขึ้น"));
+    const filtered = (typeFilterOn() && state.types.length) || (dateFilterOn() && state.range.key);
+    const fresh = !t.length && !filtered;
+    ul.append(el("li", { class: "empty reveal" }, mascotEl(fresh ? "sleepy" : "confused", "empty-mascot"),
+      el("strong", {}, fresh ? "ยังว่างอยู่เลย" : "ไม่พบผลลัพธ์"),
+      fresh ? "เลือกโฟลเดอร์ให้น้องค้น หรือกด เพิ่ม เพื่ออัปโหลดไฟล์ จดโน้ต เก็บลิงก์ หรือรหัสผ่าน"
+        : filtered ? "ลองคำอื่น หรือล้างตัวกรองประเภท/ช่วงเวลา" : "ลองคำอื่น หรือคำที่ยาวขึ้น"));
     return;
   }
   const frag = document.createDocumentFragment();
@@ -676,7 +838,7 @@ async function primaryAction(r) {
 async function openFile(id) {
   if (state.status.can_open_files) {
     try { await api(`/api/files/${id}/open`, { method: "POST" }); toast("กำลังเปิดไฟล์…"); }
-    catch (e) { toast(e.message); }
+    catch (e) { toast(e.message, "sad"); }
   } else {
     window.open(`/api/files/${id}/download`, "_blank");
   }
@@ -706,7 +868,7 @@ function closeDetail() {
 
 const valueBox = (content, ...buttons) => el("div", { class: "valuebox" }, content, ...buttons);
 
-async function showDetail(id) {
+async function showDetail(id, opts = {}) {
   const item = await api(`/api/items/${id}`);
   if (state.results[state.selected]?.id !== id) return; // selection moved on
   state.detailId = id;
@@ -730,6 +892,11 @@ async function showDetail(id) {
       btn("ดูเนื้อหา", () => openViewer(item), "secondary", "lines"),
       btn("คัดลอก path", () => copy(item.path, "คัดลอก path แล้ว"), "secondary", "copy"),
       item.uploaded ? btn("ลบไฟล์", () => deleteItem(item), "danger", "trash") : null));
+    if (OCR_FILE.test(item.title) && state.status?.indexing?.ocr?.available) {
+      const box = ocrBox(item);
+      if (opts.ocrJob) { box.dataset.reloaded = "1"; box.showJob(opts.ocrJob); }
+      parts.push(box);
+    }
     const isImage = /\.(png|jpe?g|gif|webp|bmp)$/i.test(item.title);
     parts.push(detailBody(
       isImage ? el("img", { class: "preview", src: `/api/files/${item.id}/preview`, alt: item.title, loading: "lazy" }) : null,
@@ -781,6 +948,58 @@ function detailBody(...children) {
   return el("div", { class: "detail-body" }, ...children.filter(Boolean));
 }
 
+// ------------------------------------------------------- OCR on request
+/* The scan skips PDF pages that have a text layer, and does not retry files
+   that gave no text. "อ่านด้วย OCR" reads this one file now, every page. */
+const OCR_FILE = /\.(pdf|png|jpe?g|tiff?|bmp|webp|gif)$/i;
+let ocrPoll = null;
+
+function ocrBox(item) {
+  const box = el("div", { class: "ocr-box" });
+  const show = (job) => {
+    clearTimeout(ocrPoll);
+    const run = () => startOcr(item, show);
+    if (job.state === "running") {
+      const pages = job.pages ? `หน้า ${job.page} / ${job.pages}` : "กำลังเตรียม…";
+      box.replaceChildren(mascotEl("working", "tiny"),
+        el("span", {}, `น้องกำลังอ่านไฟล์นี้ด้วย OCR · ${pages}`),
+        el("div", { class: `progress${job.pages ? "" : " indeterminate"}` },
+          el("span", { style: job.pages ? `width:${Math.round((job.page / job.pages) * 100)}%` : "" })));
+      ocrPoll = setTimeout(async () => {
+        if (!box.isConnected) return; // the details moved on to another item
+        try { show(await api(`/api/files/${item.id}/ocr`)); } catch { /* keep the last state */ }
+      }, 1000);
+    } else if (job.state === "done") {
+      const found = job.chars > 0;
+      box.replaceChildren(mascotEl(found ? "happy" : "confused", "tiny"),
+        el("span", {}, found ? `อ่านได้ ${job.chars.toLocaleString()} ตัวอักษร (${job.pages} หน้า) ค้นหาได้แล้ว` : "อ่านแล้วแต่ไม่เจอข้อความในไฟล์นี้"),
+        btn("อ่านอีกครั้ง", run, "ghost sm"));
+      if (found && state.detailId === item.id && !box.dataset.reloaded) {
+        box.dataset.reloaded = "1";
+        setTimeout(() => state.detailId === item.id && showDetail(item.id, { ocrJob: job }), 900);
+      }
+    } else if (job.state === "failed") {
+      box.replaceChildren(mascotEl("sad", "tiny"), el("span", {}, `อ่านไม่สำเร็จ${job.error ? `: ${job.error}` : ""}`),
+        btn("ลองใหม่", run, "ghost sm"));
+    } else {
+      box.replaceChildren(icon("scan"), el("span", {}, "ข้อความไม่ครบ หรือเป็นภาพสแกน?"),
+        btn("อ่านด้วย OCR", run, "secondary sm"));
+    }
+  };
+  show({ state: "idle" });
+  api(`/api/files/${item.id}/ocr`).then((job) => { if (job.state === "running") show(job); }).catch(() => {});
+  box.showJob = show;
+  return box;
+}
+
+async function startOcr(item, show) {
+  try {
+    show(await api(`/api/files/${item.id}/ocr`, { method: "POST" }));
+  } catch (e) {
+    toast(e.message, "sad");
+  }
+}
+
 function withReveal(node, i) {
   node.classList.add("reveal");
   node.style.setProperty("--i", i);
@@ -811,7 +1030,7 @@ async function editItem(id, kind) {
     });
   });
   if (saved) {
-    toast("บันทึกแล้ว");
+    toast("บันทึกแล้ว", "happy");
     await refreshStatus();
     await search();
     const idx = state.results.findIndex((r) => r.id === saved.id);
@@ -901,7 +1120,7 @@ const viewer = {
 async function openViewer(item) {
   let info;
   try { info = await api(`/api/items/${item.id}/text`); }
-  catch (e) { return toast(e.message); }
+  catch (e) { return toast(e.message, "sad"); }
   viewer.gen++;
   Object.assign(viewer, { info, chunks: new Map(), pending: new Set(), lastKey: "", hits: [], hitLines: new Map(),
     current: -1, currentLine: -1, flashLine: -1, revealLine: -1 });
@@ -1115,11 +1334,74 @@ window.addEventListener("resize", () => { if (viewerOpen()) { viewer.lastKey = "
 
 // ------------------------------------------------------------------ guide
 /** "น้องคาหน" — CAHON's mascot: a little round blob holding a magnifier
-    (static/brand/mascot.svg; classes drive the blink/bob/wave animations). */
-function mascotSvg() {
-  return '<svg viewBox="0 0 64 64" aria-hidden="true"><ellipse cx="31" cy="59" rx="15" ry="1.8" fill="#000" opacity=".07"/><path d="M31 11.5q-1.2-4.6 3-5.6" stroke="#5cc39a" stroke-width="2.4" stroke-linecap="round" fill="none"/><path d="M9 37C9 21 19 11 31 11S53 21 53 37C53 50 44 56.5 31 56.5S9 50 9 37Z" fill="var(--mascot-body)"/><path d="M15.5 29c1.6-5.6 5.4-9.4 10.5-11" stroke="#fff" stroke-width="2.4" stroke-linecap="round" fill="none" opacity=".75"/><g class="eye"><ellipse cx="24" cy="35" rx="2.4" ry="3.1" fill="#262626"/><ellipse cx="38" cy="35" rx="2.4" ry="3.1" fill="#262626"/></g><ellipse cx="19.5" cy="40.8" rx="2.8" ry="1.6" fill="#ff8fa3" opacity=".5"/><ellipse cx="42.5" cy="40.8" rx="2.8" ry="1.6" fill="#ff8fa3" opacity=".5"/><path d="M28.5 40.5q2.5 2.6 5 0" stroke="#262626" stroke-width="2" stroke-linecap="round" fill="none"/><g class="handle"><circle cx="47.5" cy="46.5" r="6.8" fill="#fff" fill-opacity=".6" stroke="var(--mascot-ring)" stroke-width="3"/><path d="M52.4 51.4l5.4 5.4" stroke="var(--mascot-ring)" stroke-width="4" stroke-linecap="round"/></g></svg>';
+    (static/brand/mascot.svg). Moods change the face and add a small extra;
+    CSS animates each mood (.mascot[data-mood=…]):
+      idle      blinks and bobs (default)
+      happy     ^ ^ eyes, big smile, hops        — saved, copied, found
+      working   eyes look along, magnifier sweeps — scanning, OCR, uploading
+      confused  odd eyes, wavy mouth, "?"         — nothing found
+      sad       droopy eyes, frown, a tear        — something went wrong
+      sleepy    closed eyes, "z z"                — nothing to do yet
+      celebrate happy face with sparkles          — scan finished */
+const MASCOT_MOODS = ["idle", "happy", "working", "confused", "sad", "sleepy", "celebrate"];
+const INK = "#262626";
+const MASCOT_FACES = {
+  idle: `<g class="eye"><ellipse cx="24" cy="35" rx="2.4" ry="3.1" fill="${INK}"/><ellipse cx="38" cy="35" rx="2.4" ry="3.1" fill="${INK}"/></g>`
+    + `<path d="M28.5 40.5q2.5 2.6 5 0" stroke="${INK}" stroke-width="2" stroke-linecap="round" fill="none"/>`,
+  happy: `<path d="M21.3 36.2q2.7-4 5.4 0M35.3 36.2q2.7-4 5.4 0" stroke="${INK}" stroke-width="2.2" stroke-linecap="round" fill="none"/>`
+    + `<path d="M27.3 39.6q3.7 5.4 7.4 0z" fill="${INK}"/><path d="M29.2 41.9q1.8 1.3 3.6 0" stroke="#ff8fa3" stroke-width="1.6" stroke-linecap="round" fill="none"/>`,
+  working: `<g class="eye look"><ellipse cx="25.4" cy="35" rx="2.4" ry="3.1" fill="${INK}"/><ellipse cx="39.4" cy="35" rx="2.4" ry="3.1" fill="${INK}"/></g>`
+    + `<path d="M29 41h4.4" stroke="${INK}" stroke-width="2" stroke-linecap="round"/>`,
+  confused: `<g class="eye"><ellipse cx="24" cy="35" rx="2.4" ry="3.1" fill="${INK}"/><circle cx="38" cy="35.4" r="1.7" fill="${INK}"/></g>`
+    + `<path d="M35.4 29.6l4.6-1.4" stroke="${INK}" stroke-width="1.8" stroke-linecap="round"/>`
+    + `<path d="M27.5 41.6q1.6-1.8 3.2 0t3.2 0" stroke="${INK}" stroke-width="1.9" stroke-linecap="round" fill="none"/>`,
+  sad: `<g class="eye"><ellipse cx="24" cy="35.6" rx="2.3" ry="2.6" fill="${INK}"/><ellipse cx="38" cy="35.6" rx="2.3" ry="2.6" fill="${INK}"/></g>`
+    + `<path d="M20.5 31.6l5-1.6M41.5 31.6l-5-1.6" stroke="${INK}" stroke-width="1.8" stroke-linecap="round"/>`
+    + `<path d="M28.5 42.6q2.5-2.6 5 0" stroke="${INK}" stroke-width="2" stroke-linecap="round" fill="none"/>`,
+  sleepy: `<path d="M21.4 35.6q2.6 1.8 5.2 0M35.4 35.6q2.6 1.8 5.2 0" stroke="${INK}" stroke-width="2" stroke-linecap="round" fill="none"/>`
+    + `<ellipse cx="31" cy="41.4" rx="1.5" ry="1.8" fill="${INK}"/>`,
+};
+MASCOT_FACES.celebrate = MASCOT_FACES.happy;
+const MASCOT_EXTRAS = {
+  confused: `<text class="q" x="45" y="16" font-size="13" font-weight="700" fill="var(--mascot-ring)" font-family="inherit">?</text>`,
+  sad: `<path class="tear" d="M21.5 39.2q-1.6 2.6 0 3.6q1.6-1 0-3.6z" fill="#6cb8f0"/>`,
+  sleepy: `<text class="z z1" x="44" y="17" font-size="8" font-weight="700" fill="var(--mascot-ring)" font-family="inherit">z</text>`
+    + `<text class="z z2" x="50" y="10" font-size="6" font-weight="700" fill="var(--mascot-ring)" font-family="inherit">z</text>`,
+  celebrate: `<path class="spark s1" d="M8 14l1.2 3 3 1.2-3 1.2-1.2 3-1.2-3-3-1.2 3-1.2z" fill="#ffc94d"/>`
+    + `<path class="spark s2" d="M54 8l.9 2.2 2.2.9-2.2.9-.9 2.2-.9-2.2-2.2-.9 2.2-.9z" fill="#ff8fa3"/>`
+    + `<path class="spark s3" d="M58 28l.8 1.9 1.9.8-1.9.8-.8 1.9-.8-1.9-1.9-.8 1.9-.8z" fill="#6cb8f0"/>`,
+};
+
+function mascotSvg(mood = "idle") {
+  if (!MASCOT_FACES[mood]) mood = "idle";
+  return '<svg viewBox="0 0 64 64" aria-hidden="true">'
+    + '<ellipse class="shadow" cx="31" cy="59" rx="15" ry="1.8" fill="#000" opacity=".07"/>'
+    + '<g class="blob">'
+    + '<path d="M31 11.5q-1.2-4.6 3-5.6" stroke="#5cc39a" stroke-width="2.4" stroke-linecap="round" fill="none"/>'
+    + '<path d="M9 37C9 21 19 11 31 11S53 21 53 37C53 50 44 56.5 31 56.5S9 50 9 37Z" fill="var(--mascot-body)"/>'
+    + '<path d="M15.5 29c1.6-5.6 5.4-9.4 10.5-11" stroke="#fff" stroke-width="2.4" stroke-linecap="round" fill="none" opacity=".75"/>'
+    + MASCOT_FACES[mood]
+    + '<ellipse cx="19.5" cy="40.8" rx="2.8" ry="1.6" fill="#ff8fa3" opacity=".5"/><ellipse cx="42.5" cy="40.8" rx="2.8" ry="1.6" fill="#ff8fa3" opacity=".5"/>'
+    + '<g class="handle"><circle cx="47.5" cy="46.5" r="6.8" fill="#fff" fill-opacity=".6" stroke="var(--mascot-ring)" stroke-width="3"/>'
+    + '<path d="M52.4 51.4l5.4 5.4" stroke="var(--mascot-ring)" stroke-width="4" stroke-linecap="round"/></g>'
+    + '</g>' + (MASCOT_EXTRAS[mood] || "") + '</svg>';
 }
-document.querySelectorAll(".mascot").forEach((m) => { m.innerHTML = mascotSvg(); }); // static, trusted markup
+
+/** A mascot element in a mood ("small" / "big" / "tiny" size classes). */
+function mascotEl(mood = "idle", cls = "") {
+  const m = el("div", { class: `mascot ${cls}`.trim(), "data-mood": mood, "aria-hidden": "true" });
+  m.innerHTML = mascotSvg(mood); // static, trusted markup
+  return m;
+}
+
+/** Change the mood of a mascot already on the page. */
+function setMood(m, mood) {
+  if (!m || m.dataset.mood === mood) return;
+  m.dataset.mood = mood;
+  m.innerHTML = mascotSvg(mood); // static, trusted markup
+}
+
+document.querySelectorAll(".mascot").forEach((m) => { m.innerHTML = mascotSvg(m.dataset.mood); }); // static, trusted markup
 
 const GUIDE = [
   { key: "search", icon: "search", color: "file", title: "ค้นหาทุกอย่าง", target: ".input.search",
@@ -1283,7 +1565,7 @@ function endTour(finished) {
   try { localStorage.setItem("cahon-tour-done", "1"); } catch { /* ignore */ }
   if (finished && tour.steps.length > 1) {
     confetti();
-    toast("เก่งมาก! พร้อมใช้งานแล้ว");
+    toast("เก่งมาก! พร้อมใช้งานแล้ว", "celebrate");
   }
   $("#q").focus();
 }
@@ -1346,6 +1628,7 @@ function onPrefsChanged(before) {
   if (!before || before.recent !== prefs.recent || before.resultLimit !== prefs.resultLimit || before.sortBy !== prefs.sortBy
       || (before.typeFilter !== prefs.typeFilter && state.types.length)
       || (before.dateFilter !== prefs.dateFilter && state.range.key)) search();
+  if (before && before.folderPanel !== prefs.folderPanel) { if (prefs.folderPanel) loadFolders(); else renderFolderPanel(); }
   updateDateButton();
   if (before && (before.typeFilter !== prefs.typeFilter || before.dateFilter !== prefs.dateFilter)) { state.facetsKey = ""; loadTypeCounts(state.seq); }
   updateSortLabel();
@@ -1439,6 +1722,8 @@ function pageDisplay() {
       pref("รายการล่าสุด", "แสดงรายการล่าสุดก่อนเริ่มพิมพ์", sw("recent", "รายการล่าสุด")),
       pref("ตัวกรองประเภทไฟล์", "ปุ่ม PDF · Word · Excel · PowerPoint · รูปภาพ … เหนือรายการ พร้อมจำนวนที่เจอ เลือกได้หลายประเภท",
         sw("typeFilter", "ตัวกรองประเภทไฟล์")),
+      pref("แผงโฟลเดอร์หน้าแรก", "ก่อนพิมพ์ค้นหา: โฟลเดอร์ที่ค้นหา จำนวนไฟล์ โฟลเดอร์ที่กำลังสแกน และปุ่มเพิ่มโฟลเดอร์",
+        sw("folderPanel", "แผงโฟลเดอร์หน้าแรก")),
       pref("ตัวกรองช่วงเวลา", "ปุ่มเลือกช่วงวันที่แก้ไข: วันนี้ · 7 วัน · 30 วัน · ปีนี้ · กำหนดเอง",
         sw("dateFilter", "ตัวกรองช่วงเวลา")),
     ]),
@@ -1485,12 +1770,12 @@ async function saveScanSettings(patch) {
     await api("/api/scan/settings", { method: "PUT", body: { ...current, ...patch } });
     await refreshStatus();
     renderSettingsPage();
-  } catch (e) { toast(e.message); }
+  } catch (e) { toast(e.message, "sad"); }
 }
 
 async function startScan() {
   await api("/api/scan/start", { method: "POST" });
-  toast("เริ่มสแกนแล้ว");
+  toast("เริ่มสแกนแล้ว", "working");
   setTimeout(refreshStatus, 300);
 }
 
@@ -1674,7 +1959,7 @@ async function updateAction(path, body) {
     state.status.update = st;
     renderSettingsPage();
     if (st.state === "downloading" || st.state === "installing") pollUpdate();
-  } catch (e) { toast(e.message); }
+  } catch (e) { toast(e.message, "sad"); }
 }
 
 function pollUpdate() {
@@ -1805,6 +2090,9 @@ function scheduleStatus() {
 function renderStatusUI() {
   const s = state.status;
   if (!s || !s.authenticated) return;
+  // Home folder panel: live while scanning, refreshed now and then otherwise.
+  if (prefs.folderPanel && (s.indexing.running || wasRunning || Date.now() - foldersLoadedAt > 30000)) loadFolders();
+  else renderFolderPanel();
   const total = Object.values(s.counts).reduce((a, b) => a + b, 0);
   for (const item of document.querySelectorAll("#filters [data-kind]")) {
     const k = item.dataset.kind;
@@ -1840,7 +2128,7 @@ function renderStatusUI() {
   }
   if (wasRunning && !ix.running) {
     const last = ix.last;
-    toast(last && last.stopped ? "หยุดสแกนแล้ว" : "สแกนเสร็จแล้ว");
+    toast(last && last.stopped ? "หยุดสแกนแล้ว" : "สแกนเสร็จแล้ว!", last && last.stopped ? "sleepy" : "celebrate");
     search();
   }
   wasRunning = ix.running;
@@ -1907,7 +2195,7 @@ function uploadFiles(fileList) {
     const first = data.items[0] && state.results.findIndex((r) => r.id === data.items[0].id);
     if (first >= 0) select(first);
   };
-  xhr.onerror = () => { panel.classList.add("hidden"); toast("อัปโหลดไม่สำเร็จ (เชื่อมต่อไม่ได้)"); };
+  xhr.onerror = () => { panel.classList.add("hidden"); toast("อัปโหลดไม่สำเร็จ (เชื่อมต่อไม่ได้)", "sad"); };
   xhr.send(fd);
 }
 

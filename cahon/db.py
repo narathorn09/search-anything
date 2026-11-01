@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter
+import os
 import sqlite3
 import threading
 import time
@@ -437,6 +438,17 @@ class Database:
         if 1 <= shard_no <= len(self.shards):
             return self.shards[shard_no - 1], rowid
         return None
+
+    def files_under(self, folder: str) -> int:
+        """How many indexed files are inside ``folder`` (uses the path index)."""
+        prefix = folder.rstrip("/\\") + os.sep
+        hi = prefix[:-1] + chr(ord(prefix[-1]) + 1)
+        total = 0
+        for shard in self.shards:
+            with shard._rlock:
+                total += shard.rconn.execute("SELECT COUNT(*) FROM files WHERE path >= ? AND path < ?",
+                                             (prefix, hi)).fetchone()[0]
+        return total
 
     def file_index(self) -> dict[str, tuple[int, float, int]]:
         """{path: (id, mtime, size)} for every indexed file."""

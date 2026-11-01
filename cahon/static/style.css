@@ -692,6 +692,7 @@ dialog .note { font-size: var(--text-supporting); color: var(--color-text-second
 
 /* ================================================================ toast */
 #toast {
+  display: flex; align-items: center; gap: 8px;
   position: fixed; bottom: var(--space-4); left: 50%; z-index: 500; transform: translateX(-50%);
   padding: var(--space-2) var(--space-3); border-radius: var(--radius-container); box-shadow: var(--shadow-med);
   background: var(--color-text-primary); color: var(--color-background-surface); font-size: 15px;
@@ -859,11 +860,6 @@ dialog .note { font-size: var(--text-supporting); color: var(--color-text-second
 .about-brand { display: inline-flex; align-items: center; gap: 8px; }
 .about-brand img { width: 36px; height: 36px; }
 .empty-mascot { width: 96px; height: 96px; margin: 0 auto 10px; }
-.empty-mascot.lost svg { transform: rotate(-12deg); } /* "ไม่พบ": head tilted, puzzled */
-@media (prefers-reduced-motion: no-preference) {
-  .empty-mascot.lost svg { animation: none; }
-  .empty-mascot.lost .handle { animation: wiggle 1.1s var(--ease-bounce) 1 .2s; }
-}
 
 /* ====================================================== file type chips */
 .type-chips { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding: 2px 1px 6px; flex-shrink: 0; }
@@ -890,3 +886,107 @@ dialog .note { font-size: var(--text-supporting); color: var(--color-text-second
 .type-chip[data-type="media"] { --dot: #db2777; }
 .type-chip[data-type="other"] { --dot: #9aa3b5; }
 :root[data-type-filter="off"] .type-chips { display: none; }
+
+/* ======================================================= mascot moods
+   One mascot, many moods (app.js mascotSvg): each mood moves differently. */
+.mascot.tiny { width: 30px; height: 30px; margin: -4px 0; }
+#toast .mascot.tiny { --mascot-ring: #262626; }
+.mascot .blob, .mascot .z, .mascot .q, .mascot .tear, .mascot .spark, .mascot .look { transform-box: fill-box; }
+.mascot .blob { transform-origin: 50% 100%; }
+.mascot .spark { transform-origin: center; }
+.mascot .z { opacity: 0; }
+@media (prefers-reduced-motion: no-preference) {
+  .mascot[data-mood] svg { animation: none; }
+  .mascot[data-mood="idle"] .blob { animation: bob 3.2s ease-in-out infinite; }
+  /* happy: two hops, then a gentle bob */
+  .mascot[data-mood="happy"] .blob { animation: m-hop .55s var(--ease-bounce) 2, bob 3.2s ease-in-out 1.1s infinite; }
+  @keyframes m-hop { 0%, 100% { transform: none; } 45% { transform: translateY(-14%) scale(.96, 1.05); } 80% { transform: translateY(0) scale(1.06, .94); } }
+  /* working: the magnifier sweeps, eyes follow it */
+  .mascot[data-mood="working"] .handle { animation: m-sweep 1.4s ease-in-out infinite; }
+  .mascot[data-mood="working"] .look { animation: m-look 1.4s ease-in-out infinite; }
+  .mascot[data-mood="working"] .blob { animation: m-busy 1.4s ease-in-out infinite; }
+  @keyframes m-sweep { 0%, 100% { transform: rotate(-22deg); } 50% { transform: rotate(14deg); } }
+  @keyframes m-look { 0%, 100% { transform: translateX(-12%); } 50% { transform: translateX(10%); } }
+  @keyframes m-busy { 0%, 100% { transform: rotate(-2deg); } 50% { transform: rotate(2deg) translateY(-2%); } }
+  /* confused: head tilts, the "?" bobs */
+  .mascot[data-mood="confused"] .blob { animation: m-tilt 2.6s ease-in-out infinite; }
+  .mascot[data-mood="confused"] .q { animation: m-q 1.3s ease-in-out infinite; }
+  @keyframes m-tilt { 0%, 100% { transform: rotate(-9deg); } 50% { transform: rotate(-4deg); } }
+  @keyframes m-q { 0%, 100% { transform: translateY(0) rotate(-8deg); } 50% { transform: translateY(-14%) rotate(8deg); } }
+  /* sad: droops a little, a tear runs down */
+  .mascot[data-mood="sad"] .blob { animation: m-droop 2.8s ease-in-out infinite; }
+  .mascot[data-mood="sad"] .tear { animation: m-tear 2s ease-in infinite; }
+  @keyframes m-droop { 0%, 100% { transform: scale(1, 1); } 50% { transform: scale(1.03, .96); } }
+  @keyframes m-tear { 0% { opacity: 0; transform: translateY(-20%); } 20% { opacity: 1; } 100% { opacity: 0; transform: translateY(160%); } }
+  /* sleepy: slow breathing, "z z" float away */
+  .mascot[data-mood="sleepy"] .blob { animation: m-breathe 3.6s ease-in-out infinite; }
+  .mascot[data-mood="sleepy"] .z { animation: m-z 3s ease-out infinite; }
+  .mascot[data-mood="sleepy"] .z2 { animation-delay: 1.5s; }
+  @keyframes m-breathe { 0%, 100% { transform: scale(1, 1); } 50% { transform: scale(1.03, .97); } }
+  @keyframes m-z { 0% { opacity: 0; transform: translate(0, 40%); } 25% { opacity: .9; } 100% { opacity: 0; transform: translate(40%, -60%); } }
+  /* celebrate: keeps hopping, sparkles twinkle */
+  .mascot[data-mood="celebrate"] .blob { animation: m-hop .6s var(--ease-bounce) infinite alternate; }
+  .mascot[data-mood="celebrate"] .spark { animation: m-spark 1.2s ease-in-out infinite; }
+  .mascot[data-mood="celebrate"] .s2 { animation-delay: .4s; }
+  .mascot[data-mood="celebrate"] .s3 { animation-delay: .8s; }
+  @keyframes m-spark { 0%, 100% { opacity: .2; transform: scale(.5) rotate(0); } 50% { opacity: 1; transform: scale(1.15) rotate(45deg); } }
+}
+
+/* ========================================== home: folders being searched */
+.folder-panel { flex-shrink: 0; display: grid; gap: 10px; margin: 2px 0 10px; padding: 12px 14px;
+  border: 1px solid var(--color-border); border-radius: var(--radius-container); background: var(--color-background-surface); }
+:root[data-folder-panel="off"] .folder-panel { display: none; }
+.fp-head { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.fp-head .mascot.small { width: 52px; height: 52px; }
+.fp-text { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.fp-text strong { font-size: 15px; font-weight: 500; color: var(--color-text-heading); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fp-text > span { font-size: 13px; color: var(--color-text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fp-text .progress { height: 5px; margin-top: 5px; }
+.fp-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.fp-folders { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; max-height: 76px; overflow-y: auto; }
+.fp-folder { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 4px 0 10px; max-width: 100%;
+  border: 1px solid var(--color-border); border-radius: 999px; font-size: 13px; background: var(--color-background-body); }
+.fp-folder .icon { width: 15px; height: 15px; color: var(--color-text-secondary); flex-shrink: 0; }
+.fp-folder .dot-live { margin: 0; flex-shrink: 0; }
+.fp-folder .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; }
+.fp-folder .n { color: var(--color-text-secondary); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.fp-folder.scanning { border-color: color-mix(in srgb, #1a7f37 45%, var(--color-border)); background: color-mix(in srgb, #1a7f37 7%, var(--color-background-surface)); }
+.fp-folder.missing { opacity: .6; }
+.fp-folder.missing .n { color: #b42318; }
+.fp-remove { display: grid; place-items: center; width: 22px; height: 22px; border: 0; border-radius: 50%; background: transparent;
+  color: var(--color-text-disabled); cursor: pointer; padding: 0; }
+.fp-remove .icon { width: 13px; height: 13px; color: inherit; }
+.fp-remove:hover { background: var(--color-overlay-hover); color: var(--color-text-primary); }
+@media (prefers-reduced-motion: no-preference) {
+  .fp-folder.scanning .dot-live { animation: live-pulse 1.2s ease-in-out infinite; }
+  @keyframes live-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(26, 127, 55, .45); } 50% { box-shadow: 0 0 0 5px rgba(26, 127, 55, 0); } }
+}
+@media (max-width: 640px) {
+  .fp-head { flex-wrap: wrap; }
+  .fp-actions { width: 100%; }
+  .fp-actions .btn { flex: 1; }
+}
+
+/* folder browser (choose a folder inside the app) */
+.fb-roots { display: flex; gap: 6px; flex-wrap: wrap; }
+.fb-bar { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.fb-path { flex: 1; min-width: 0; font-size: 13px; color: var(--color-text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+.fb-list { list-style: none; margin: 0; padding: 4px; height: min(320px, 45vh); overflow-y: auto;
+  border: 1px solid var(--color-border); border-radius: var(--radius-element); }
+.fb-dir { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px; border: 0; border-radius: 8px;
+  background: transparent; text-align: left; font: inherit; font-size: 14px; color: var(--color-text-primary); cursor: pointer; }
+.fb-dir .icon { width: 17px; height: 17px; color: var(--color-text-secondary); flex-shrink: 0; }
+.fb-dir:hover, .fb-dir:focus-visible { background: var(--color-overlay-hover); outline: none; }
+.fb-empty { padding: 12px; color: var(--color-text-disabled); font-size: 14px; }
+
+/* details: read this file with OCR on request */
+.ocr-box { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 8px 10px; font-size: 13px;
+  color: var(--color-text-secondary); border: 1px dashed var(--color-border-emphasized); border-radius: var(--radius-element); }
+.ocr-box > span { flex: 1; min-width: 140px; }
+.ocr-box > .icon { width: 18px; height: 18px; }
+.ocr-box .progress { flex-basis: 100%; height: 5px; }
+.sort-btn { white-space: nowrap; }
+@media (max-width: 640px) {
+  #date-btn[aria-pressed="false"] #date-label { display: none; } /* icon only until a range is chosen */
+  #date-btn { padding: 0 8px; }
+}
