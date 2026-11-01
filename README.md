@@ -48,7 +48,9 @@ python tools/release.py 1.1.0
 git push origin main v1.1.0
 ```
 
-GitHub Actions (`.github/workflows/desktop.yml`) จะ build ตัวติดตั้ง Windows และ Mac (ทั้งสองชิป) ทดสอบเปิดแอปจริงบนแต่ละเครื่อง (ค้นคำไทยในไฟล์ .doc/.xls/.ppt และ OCR) แล้วสร้าง Release `v1.1.0` พร้อมไฟล์ แอปที่ติดตั้งไว้จะเห็นเวอร์ชันใหม่ภายในหนึ่งวัน (หรือกด "ตรวจเดี๋ยวนี้") CI ไม่ปล่อย Release ถ้า tag ไม่ตรงกับเวอร์ชันในโค้ด หรือ commit ของ tag ไม่ได้อยู่ใน `main` ทุก push เข้า `main`/`dev` ก็ build ตัวติดตั้งให้ดาวน์โหลดจากหน้า Actions (artifacts) ได้เพื่อทดสอบก่อนปล่อย
+หรือไม่ต้องใช้ git tag: แก้เลขเวอร์ชันใน `search_anything/__init__.py` บน `main` แล้วไปที่ **Actions → Desktop installers → Run workflow** เลือก branch `main` ติ๊ก **release** แล้วกด Run (CI จะสร้าง tag `vX.Y.Z` ให้เอง)
+
+GitHub Actions (`.github/workflows/desktop.yml`) จะ build ตัวติดตั้ง Windows และ Mac (ทั้งสองชิป) ทดสอบเปิดแอปจริงบนแต่ละเครื่อง (ค้นคำไทยในไฟล์ .doc/.xls/.ppt และ OCR) แล้วสร้าง Release `v1.1.0` พร้อมไฟล์ แอปที่ติดตั้งไว้จะเห็นเวอร์ชันใหม่ภายในหนึ่งวัน (หรือกด "ตรวจเดี๋ยวนี้") Release จะออกหลังตัวติดตั้งทั้ง 3 แบบ build และผ่านการทดสอบแล้วเท่านั้น CI ไม่ปล่อย Release ถ้า tag ไม่ตรงกับเวอร์ชันในโค้ด commit ไม่ได้อยู่ใน `main` หรือเวอร์ชันนั้นเคยปล่อยไปแล้ว ทุก push เข้า `main`/`dev` ก็ build ตัวติดตั้งให้ดาวน์โหลดจากหน้า Actions (artifacts) ได้เพื่อทดสอบก่อนปล่อย
 
 ## เริ่มใช้งานจากโค้ด (สคริปต์คำสั่งเดียว)
 
