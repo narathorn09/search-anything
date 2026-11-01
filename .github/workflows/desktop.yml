@@ -47,7 +47,9 @@ jobs:
       - name: Python packages, Rust readers
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt pyinstaller pywebview
+          # Wheels only for cryptography: a source build links the system OpenSSL,
+          # which clashes with the one PyInstaller bundles (seen on Intel Macs).
+          pip install --only-binary=cryptography -r requirements.txt pyinstaller pywebview
           pip install ./native
           python -c "import sa_native; print('sa_native', sa_native.__version__)"
       - name: Tesseract (OCR) with Thai
@@ -119,7 +121,9 @@ jobs:
       - name: Python packages, Rust readers
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt pyinstaller pywebview
+          # Wheels only for cryptography: a source build links the system OpenSSL,
+          # which clashes with the one PyInstaller bundles (seen on Intel Macs).
+          pip install --only-binary=cryptography -r requirements.txt pyinstaller pywebview
           pip install ./native
           python -c "import sa_native; print('sa_native', sa_native.__version__)"
       - name: Tesseract (OCR) with Thai, made self-contained
