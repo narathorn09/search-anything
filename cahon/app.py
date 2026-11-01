@@ -10,6 +10,7 @@ import os
 import secrets
 import subprocess
 import sys
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -27,7 +28,9 @@ from .db import Database
 from .extractors import MAX_TEXT_CHARS, SUPPORTED, is_plain_text_type
 from .textview import LineIndex, LineIndexCache
 from . import filetypes, ocr
-from .indexer import Indexer, ScanSettings
+from .indexer import MAX_OCR_CHARS, Indexer, ScanSettings
+
+MANUAL_OCR_MAX_PAGES = 2000
 from .worker import ProcessIndexer
 from .resources import CONTAINER, CPU_COUNT, PROFILES, ram_limits_mb
 from . import __version__
@@ -340,29 +343,30 @@ def create_app(config: Config) -> FastAPI:
     def search(q: str = "", kind: Literal["", "all", "file", "note", "bookmark", "password"] | None = None,
                limit: int = 50, offset: int = 0,
                sort: Literal["relevance", "newest", "oldest", "name", "name_desc", "largest", "type"] = "relevance",
-               types: str = ""):
+               types: str = "", since: float | None = None, until: float | None = None):
         """One page of results. ``total`` is None when not counted yet (ask /api/search/count)."""
         kind = kind or None if kind != "all" else None
         limit = max(1, min(limit, 200))
         offset = max(0, offset)
         terms = q.split()
-        page = db.page(q, kind, sort, offset, limit, filetypes.parse(types))
+        page = db.page(q, kind, sort, offset, limit, filetypes.parse(types), since, until)
         return {"query": q, "offset": offset, "total": page["total"], "approx": page["approx"],
                 "has_more": page["has_more"], "results": [serialize(r, terms) for r in page["results"]]}
 
     @app.get("/api/search/count", dependencies=[Depends(require_auth)])
     def search_count(q: str = "", kind: Literal["", "all", "file", "note", "bookmark", "password"] | None = None,
                      sort: Literal["relevance", "newest", "oldest", "name", "name_desc", "largest", "type"] = "relevance",
-                     types: str = ""):
+                     types: str = "", since: float | None = None, until: float | None = None):
         """Total number of results. Bounded in time: ``approx`` means "at least"."""
         kind = kind or None if kind != "all" else None
-        return db.count(q, kind, sort, filetypes.parse(types))
+        return db.count(q, kind, sort, filetypes.parse(types), since, until)
 
     @app.get("/api/search/facets", dependencies=[Depends(require_auth)])
-    def search_facets(q: str = "", kind: Literal["", "all", "file", "note", "bookmark", "password"] | None = None):
+    def search_facets(q: str = "", kind: Literal["", "all", "file", "note", "bookmark", "password"] | None = None,
+                      since: float | None = None, until: float | None = None):
         """Matching files per type group (PDF, Word …), for the type filter chips."""
         kind = kind or None if kind != "all" else None
-        result = db.facets(q, kind)
+        result = db.facets(q, kind, since, until)
         return {**result, "labels": filetypes.LABELS, "order": filetypes.KEYS}
 
     # ------------------------------------------------------------ items
@@ -584,11 +588,116 @@ def create_app(config: Config) -> FastAPI:
         indexer.trigger()
         return {"folders": resolved}
 
+    def require_folder_editing() -> None:
+        if not (config.mode == "local" and config.can_open_files):
+            raise HTTPException(403, "folders are chosen when the app starts")
+
+    @app.get("/api/folders", dependencies=[Depends(require_auth)])
+    def list_folders():
+        """The folders being searched, for the home screen: files found in each,
+        and which one the scanner is in right now."""
+        progress = indexer.status().get("progress") or {}
+        running = indexer.running
+        current = progress.get("path") or ""
+        out = []
+        for f in indexer.folders:
+            if f == str(upload_dir):
+                continue
+            inside = running and (current == f or current.startswith(f.rstrip("/\\") + os.sep))
+            out.append({"path": display_path(f), "name": Path(f).name or f, "files": db.files_under(f),
+                        "exists": os.path.isdir(f), "scanning": bool(inside)})
+        return {"folders": out, "can_edit": config.mode == "local" and config.can_open_files,
+                "can_pick": config.mode == "local" and config.desktop}
+
+    @app.post("/api/folders/pick", dependencies=[Depends(require_auth), Depends(require_folder_editing)])
+    async def pick_folder(request: Request):
+        """Desktop app: the system's own "choose folder" window. path is None when cancelled."""
+        if not config.desktop:
+            raise HTTPException(501, "no folder window in browser mode")
+        origin = request.headers.get("origin")
+        if origin and urlsplit(origin).netloc != request.headers.get("host"):
+            raise HTTPException(403, "other sites may not open the folder window")
+        from .desktop import choose_folder
+
+        try:
+            path = await run_in_threadpool(choose_folder)
+        except Exception as exc:  # no app window (browser fallback) or no GUI
+            raise HTTPException(501, f"no folder window: {exc}")
+        return {"path": path}
+
+    @app.get("/api/folders/browse", dependencies=[Depends(require_auth), Depends(require_folder_editing)])
+    def browse_folders(path: str = ""):
+        """Sub-folders of ``path`` (default: home), for choosing a folder inside the app.
+        Lists folder names only, never files or their contents."""
+        base = Path(path).expanduser() if path else Path.home()
+        try:
+            base = base.resolve()
+            entries = sorted((e for e in os.scandir(base) if not e.name.startswith(".") and e.is_dir()),
+                             key=lambda e: e.name.casefold())
+            dirs = [{"name": e.name, "path": e.path} for e in entries[:2000]]
+        except (OSError, RuntimeError):
+            raise HTTPException(400, "เปิดโฟลเดอร์นี้ไม่ได้")
+        roots = [{"name": "Home", "path": str(Path.home())}]
+        if sys.platform.startswith("win"):
+            roots += [{"name": f"{d}:", "path": f"{d}:\\"} for d in "CDEFGHIJKLMNOPQRSTUVWXYZ" if os.path.isdir(f"{d}:\\")]
+        elif sys.platform == "darwin" and os.path.isdir("/Volumes"):
+            roots += [{"name": "Volumes", "path": "/Volumes"}]
+        else:
+            roots += [{"name": "/", "path": "/"}]
+        parent = str(base.parent) if base.parent != base else None
+        return {"path": str(base), "parent": parent, "dirs": dirs, "roots": roots}
+
     def file_row(item_id: int):
         row = get_or_404(item_id)
         if row["kind"] != "file" or not Path(row["path"]).is_file():
             raise HTTPException(404, "file not found")
         return row
+
+    # ------------------------------------------------- OCR on request
+    # The scan reads scanned PDFs and pictures by itself, but skips PDF pages
+    # that have a text layer, and does not retry a file that gave no text.
+    # The "อ่านด้วย OCR" button reads one file now: every page, two passes.
+    ocr_jobs: dict[int, dict] = {}
+    ocr_jobs_lock = threading.Lock()
+
+    def run_ocr_job(item_id: int, path: str, title: str, job: dict) -> None:
+        started = time.monotonic()
+        try:
+            st = os.stat(path)
+            reader = ocr.Reader(ocr.engine(), threads=2)
+            reader.on_page = lambda n, total: job.update(page=n, pages=total)
+            text, pages = reader.read(path, MANUAL_OCR_MAX_PAGES, force=True)
+            text = text[:MAX_OCR_CHARS]
+            item = db.get_item(item_id, max_chars=MAX_OCR_CHARS * 2)
+            if text and item is not None:
+                db.shard_for(path).upsert_many([(path, title, ocr.merge(item.get("body") or "", text),
+                                                 st.st_mtime, st.st_size)])
+            db.set_ocr(path, st.st_mtime, st.st_size, "done" if text else "none", pages, text,
+                       round(time.monotonic() - started, 2))
+            db.invalidate()
+            job.update(state="done", chars=len(text), pages=pages)
+        except Exception as exc:  # encrypted / corrupt / not a picture
+            job.update(state="failed", error=str(exc)[:200])
+
+    @app.post("/api/files/{item_id}/ocr", dependencies=[Depends(require_auth)])
+    def ocr_file(item_id: int):
+        row = file_row(item_id)
+        if not ocr.is_candidate(row["path"], True):
+            raise HTTPException(400, "OCR อ่านได้เฉพาะ PDF และรูปภาพ")
+        if not ocr.engine().available:
+            raise HTTPException(409, "ยังไม่ได้ติดตั้ง Tesseract (ดู ตั้งค่า → การสแกน → OCR)")
+        with ocr_jobs_lock:
+            job = ocr_jobs.get(item_id)
+            if job and job["state"] == "running":
+                return job
+            job = ocr_jobs[item_id] = {"state": "running", "page": 0, "pages": 0, "started_at": time.time()}
+        threading.Thread(target=run_ocr_job, args=(item_id, row["path"], row["title"], job),
+                         name="ocr-on-request", daemon=True).start()
+        return job
+
+    @app.get("/api/files/{item_id}/ocr", dependencies=[Depends(require_auth)])
+    def ocr_file_status(item_id: int):
+        return ocr_jobs.get(item_id) or {"state": "idle"}
 
     @app.post(
         "/api/files/{item_id}/open", dependencies=[Depends(require_auth), Depends(require_local)]

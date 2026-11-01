@@ -241,6 +241,7 @@ class Indexer:
             seen: set[str] = set()
             todo: list[tuple[str, str, float, int]] = []
             for folder in self._folders:
+                self.progress["path"] = folder  # which folder is being walked (home screen panel)
                 if not os.path.isdir(folder):
                     stats.errors.append(f"not a folder: {folder}")
                     continue
@@ -395,7 +396,7 @@ class Indexer:
                     done += 1
                     elapsed = time.monotonic() - started
                     rate = done / elapsed if elapsed > 0 else 0.0
-                    self.progress.update(done=done, current=name, rate=round(rate, 1),
+                    self.progress.update(done=done, current=name, path=path, rate=round(rate, 1),
                                          eta_seconds=round((len(todo) - done) / rate) if rate else None)
         finally:
             pool.shutdown(wait=True, cancel_futures=True)
@@ -454,7 +455,7 @@ class Indexer:
             if self._stop.is_set():
                 return
             brake.wait(max_wait=BRAKE_MAX_WAIT)
-            self.progress.update(current=os.path.basename(path), page=0, pages=0)
+            self.progress.update(current=os.path.basename(path), path=path, page=0, pages=0)
             try:
                 st = os.stat(path)
             except OSError:
