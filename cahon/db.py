@@ -25,12 +25,15 @@ LIMIT, which FTS5 can stop early on — so common words stay fast.
 from __future__ import annotations
 
 import json
+from collections import Counter
 import sqlite3
 import threading
 import time
 import zlib
 from pathlib import Path
 from typing import Any, Iterable
+
+from . import filetypes
 
 KINDS = ("file", "note", "bookmark", "password")
 FILE_SHARDS = 4
@@ -515,7 +518,7 @@ class Database:
         return self.page(query, kind, sort, 0, limit)["results"]
 
     def page(self, query: str, kind: str | None = None, sort: str = "relevance",
-             offset: int = 0, limit: int = 50) -> dict:
+             offset: int = 0, limit: int = 50, types: frozenset[str] = frozenset()) -> dict:
         """One page of results plus what is known about the total.
 
         Returns {"results", "total" (None = not counted yet), "approx", "has_more"}.
@@ -525,6 +528,8 @@ class Database:
         scrolling never repeats or skips results."""
         if sort not in SORTS:
             raise ValueError(f"unknown sort: {sort}")
+        if types:
+            return self._typed_page(query, kind, sort, offset, limit, types)
         long_terms, short_terms = split_terms(query)
         if not long_terms and not short_terms:
             return self._recent_page(kind, sort, offset, limit)
@@ -541,9 +546,74 @@ class Database:
         return {"results": rows, "total": snap["total"], "approx": snap["approx"],
                 "has_more": offset + limit < len(snap["entries"])}
 
-    def count(self, query: str, kind: str | None = None, sort: str = "relevance") -> dict:
-        snap = self.snapshot(query, kind, sort) if query.strip() else self._recent_snapshot(kind, sort)
+    def count(self, query: str, kind: str | None = None, sort: str = "relevance",
+              types: frozenset[str] = frozenset()) -> dict:
+        if types:
+            snap = self._typed_snapshot(query, kind, sort, types)
+        else:
+            snap = self.snapshot(query, kind, sort) if query.strip() else self._recent_snapshot(kind, sort)
         return {"total": snap["total"], "approx": snap["approx"]}
+
+    # ---- file type filter
+    def _typed_snapshot(self, query: str, kind: str | None, sort: str, types: frozenset[str]) -> dict:
+        """Files of the chosen types (PDF, Word …) that match, in a fixed order.
+        Personal items have no file type: with a type filter only files show."""
+        if kind not in (None, "file"):
+            return {"entries": [], "total": 0, "approx": False}
+        key = ("types", " ".join(query.split()), sort, tuple(sorted(types)))
+        snap = self._snap_get(key)
+        if snap:
+            return snap
+        long_terms, short_terms = split_terms(query)
+        if not long_terms and not short_terms:  # nothing typed: newest files of these types
+            cond, params = filetypes.sql_filter(types)
+            entries, approx = [], False
+            for shard in self.shards:
+                with shard._rlock:
+                    rows = shard.rconn.execute(f"SELECT * FROM files f WHERE {cond} ORDER BY f.mtime DESC LIMIT ?",
+                                               (*params, SNAPSHOT_MAX + 1)).fetchall()
+                approx = approx or len(rows) > SNAPSHOT_MAX
+                entries += [shard._as_item(r, rank=(0, -r["mtime"])) for r in rows[:SNAPSHOT_MAX]]
+            entries.sort(key=lambda r: r["rank"])
+        else:
+            base = self.snapshot(query, "file", "relevance")
+            entries = [e for e in base["entries"] if filetypes.type_of(e["title"]) in types]
+            approx = base["approx"]
+        if sort != "relevance":
+            entries = sorted(entries, key=SORTS[sort])
+        return self._snap_put(key, entries, approx=approx)
+
+    def _typed_page(self, query, kind, sort, offset, limit, types) -> dict:
+        snap = self._typed_snapshot(query, kind, sort, types)
+        rows = [dict(r) for r in snap["entries"][offset:offset + limit]]
+        long_terms, short_terms = split_terms(query)
+        if long_terms or short_terms:
+            rows = self._add_excerpts(rows, (long_terms or short_terms)[0].lower())
+        return {"results": rows, "total": snap["total"], "approx": snap["approx"],
+                "has_more": offset + limit < len(snap["entries"])}
+
+    def facets(self, query: str, kind: str | None = None) -> dict:
+        """How many matching files each type group has: {"counts": {"pdf": 3, …}, "approx"}."""
+        if kind not in (None, "file"):
+            return {"counts": {}, "approx": False}
+        long_terms, short_terms = split_terms(query)
+        if long_terms or short_terms:
+            snap = self.snapshot(query, "file", "relevance")
+            titles, approx = (e["title"] for e in snap["entries"]), snap["approx"]
+        else:
+            cached = self._snap_get(("facets",))
+            if cached:
+                return cached["facets"]
+            titles, approx = [], False
+            for shard in self.shards:
+                with shard._rlock:
+                    titles += [r[0] for r in shard.rconn.execute("SELECT title FROM files")]
+        counts = Counter(filetypes.type_of(t) for t in titles)
+        result = {"counts": {k: counts[k] for k in filetypes.KEYS if counts[k]}, "approx": approx}
+        if not (long_terms or short_terms):
+            with self._snap_lock:
+                self._snaps[("facets",)] = {"facets": result, "at": time.monotonic()}
+        return result
 
     # ---- snapshots
     @staticmethod

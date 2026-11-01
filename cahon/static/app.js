@@ -48,6 +48,8 @@ const state = {
   status: null, kind: "", results: [], selected: -1, detailId: null, seq: 0,
   // paging: what the list was searched with, total (null = still counting), more pages?
   page: null, total: null, approx: false, hasMore: false, loadingMore: false, moreError: false,
+  // file type filter: chosen groups ("pdf", "word" …) and the counts for the current search
+  types: [], facets: null, facetsKey: "",
 };
 const isSide = () => document.documentElement.dataset.detailMode === "side";
 
@@ -320,7 +322,8 @@ async function search() {
     return;
   }
   searchAbort = new AbortController();
-  state.page = { q, kind: state.kind, sort: prefs.sortBy };
+  const types = typeFilterOn() ? state.types.join(",") : "";
+  state.page = { q, kind: state.kind, sort: prefs.sortBy, types };
   const params = new URLSearchParams({ ...state.page, limit: prefs.resultLimit, offset: 0 });
   try {
     const data = await api(`/api/search?${params}`, { signal: searchAbort.signal });
@@ -333,11 +336,57 @@ async function search() {
     if (isSide() && state.selected >= 0) showDetail(state.results[0].id);
     else hideDetail();
     if (data.total == null) scheduleCount(seq);
+    loadTypeCounts(seq);
   } catch (e) {
     if (e.name === "AbortError") return;
     if (e.status === 401) return showLogin();
     toast(e.message);
   }
+}
+
+// ------------------------------------------------------- file type filter
+const typeFilterOn = () => prefs.typeFilter && (state.kind === "" || state.kind === "file");
+let facetsAbort = null;
+
+/** Counts per file type for the current words (refetched only when they change). */
+async function loadTypeCounts(seq) {
+  if (!typeFilterOn()) { renderTypeChips(); return; }
+  const q = $("#q").value.trim();
+  const key = `${state.kind}|${q}`;
+  if (key === state.facetsKey && state.facets) { renderTypeChips(); return; }
+  facetsAbort?.abort();
+  facetsAbort = new AbortController();
+  try {
+    const f = await api(`/api/search/facets?${new URLSearchParams({ q, kind: state.kind })}`, { signal: facetsAbort.signal });
+    if (seq !== state.seq) return;
+    state.facets = f;
+    state.facetsKey = key;
+    renderTypeChips();
+  } catch (e) { /* aborted or failed: the list works without the chips */ }
+}
+
+function renderTypeChips() {
+  const box = $("#type-chips");
+  const f = state.facets;
+  if (!typeFilterOn() || !f) { box.classList.add("hidden"); return; }
+  const chosen = new Set(state.types);
+  const keys = f.order.filter((k) => f.counts[k] || chosen.has(k));
+  if (!keys.length && !chosen.size) { box.classList.add("hidden"); return; }
+  const chip = (key, label, count, pressed, onclick) => el("button", {
+    type: "button", class: "type-chip", "data-type": key, "aria-pressed": String(pressed), onclick,
+  }, key ? el("span", { class: "dot" }) : null, label,
+  count != null ? el("span", { class: "n" }, `${Number(count).toLocaleString()}${f.approx ? "+" : ""}`) : null);
+  box.replaceChildren(
+    chip("", "ทุกประเภท", null, !chosen.size, () => setTypes([])),
+    ...keys.map((k) => chip(k, f.labels[k], f.counts[k] || 0, chosen.has(k),
+      () => setTypes(chosen.has(k) ? state.types.filter((t) => t !== k) : [...state.types, k]))));
+  box.classList.remove("hidden");
+}
+
+function setTypes(types) {
+  state.types = types;
+  renderTypeChips();
+  search();
 }
 
 /** Ask for the total a moment after the user stops typing (counting can take a while). */
@@ -1212,7 +1261,9 @@ function applyPreset(next, message) {
 }
 
 function onPrefsChanged(before) {
-  if (!before || before.recent !== prefs.recent || before.resultLimit !== prefs.resultLimit || before.sortBy !== prefs.sortBy) search();
+  if (!before || before.recent !== prefs.recent || before.resultLimit !== prefs.resultLimit || before.sortBy !== prefs.sortBy
+      || (before.typeFilter !== prefs.typeFilter && state.types.length)) search();
+  if (before && before.typeFilter !== prefs.typeFilter) { state.facetsKey = ""; loadTypeCounts(state.seq); }
   updateSortLabel();
   if (!before || before.filters !== prefs.filters) {
     if (prefs.filters === "hidden" && state.kind) setKind(""); // hidden filter must not keep filtering
@@ -1302,6 +1353,8 @@ function pageDisplay() {
       pref("ไอคอนประเภท", null, seg("icons", [["large", "ใหญ่"], ["small", "เล็ก"], ["none", "ซ่อน"]])),
       pref("ข้อความตัวอย่าง", "ส่วนของเนื้อหาที่ตรงกับคำค้น", sw("snippets", "ข้อความตัวอย่าง")),
       pref("รายการล่าสุด", "แสดงรายการล่าสุดก่อนเริ่มพิมพ์", sw("recent", "รายการล่าสุด")),
+      pref("ตัวกรองประเภทไฟล์", "ปุ่ม PDF · Word · Excel · PowerPoint · รูปภาพ … เหนือรายการ พร้อมจำนวนที่เจอ เลือกได้หลายประเภท",
+        sw("typeFilter", "ตัวกรองประเภทไฟล์")),
     ]),
     group("แถบและปุ่มเสริม", [
       pref("แถบสถานะการสแกน", "มุมซ้ายล่างระหว่างสแกน พร้อมปุ่มหยุด", sw("scanIndicator", "แถบสถานะการสแกน")),
@@ -1724,6 +1777,7 @@ async function showMain() {
 
 function setKind(kind) {
   state.kind = kind;
+  state.facetsKey = "";
   document.querySelectorAll("#filters [data-kind]").forEach((c) => c.classList.toggle("active", c.dataset.kind === kind));
   search();
 }
