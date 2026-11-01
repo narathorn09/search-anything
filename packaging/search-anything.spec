@@ -7,6 +7,7 @@
 # + tessdata/ with eng and tha) is copied into the app; CI fills it in.
 # Output: dist/Search Anything/ (folder app) and, on macOS, dist/Search Anything.app
 
+import re
 import sys
 from pathlib import Path
 
@@ -14,6 +15,7 @@ from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, co
 
 ROOT = Path(SPECPATH).parent
 BUILD = ROOT / "packaging" / "build"
+VERSION = re.search(r'__version__ = "([^"]+)"', (ROOT / "search_anything" / "__init__.py").read_text()).group(1)
 APP = "Search Anything"
 ICON = BUILD / "icons" / ("icon.ico" if sys.platform.startswith("win") else "icon.icns")
 
@@ -62,8 +64,8 @@ if sys.platform == "darwin":
         info_plist={
             "CFBundleName": APP,
             "CFBundleDisplayName": APP,
-            "CFBundleShortVersionString": "1.0.0",
-            "CFBundleVersion": "1.0.0",
+            "CFBundleShortVersionString": VERSION,
+            "CFBundleVersion": VERSION,
             "NSHighResolutionCapable": True,
             "LSMinimumSystemVersion": "11.0",
             # Asked once by macOS when the app first opens these folders.

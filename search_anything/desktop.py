@@ -106,7 +106,7 @@ def start_server(folder: Path, port: int):
         home = Path.home()
         folders = [str(home / n) for n in ("Documents", "Desktop", "Downloads") if (home / n).is_dir()]
     os.environ.setdefault("OTEL_SDK_DISABLED", "true")
-    app = create_app(Config(mode="local", data_dir=folder, folders=folders))
+    app = create_app(Config(mode="local", data_dir=folder, folders=folders, updates=True))
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning",
                                            log_config=None))
     thread = threading.Thread(target=server.run, name="web", daemon=True)
@@ -116,6 +116,18 @@ def start_server(folder: Path, port: int):
             break
         time.sleep(0.05)
     return server, thread, app
+
+
+def _quit(server) -> None:
+    """Close the app (an update is about to replace it)."""
+    try:
+        import webview
+
+        for window in list(webview.windows):
+            window.destroy()
+    except Exception:
+        pass
+    server.should_exit = True
 
 
 def show_window(url: str) -> bool:
@@ -160,11 +172,19 @@ def main() -> None:
     server, thread, app = start_server(folder, port)
     state_file.write_text(json.dumps({"port": port, "pid": os.getpid()}))
     url = f"http://127.0.0.1:{port}/"
+    from . import __version__
     from .extractors import NATIVE
     from .ocr import engine
+    from .updater import cleanup_downloads
 
-    log.info("Search Anything (desktop) at %s, data in %s; Rust readers: %s; OCR: %s",
-             url, folder, NATIVE, engine().info())
+    cleanup_downloads(folder)  # installers of versions already installed
+
+    log.info("Search Anything %s (desktop) at %s, data in %s; Rust readers: %s; OCR: %s",
+             __version__, url, folder, NATIVE, engine().info())
+    updater = app.state.updater
+    updater.on_quit = lambda: _quit(server)
+    if updater.enabled:
+        updater.start_background()
     try:
         if not show_window(url):
             webbrowser.open(url)

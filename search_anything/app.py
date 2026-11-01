@@ -29,6 +29,8 @@ from . import ocr
 from .indexer import Indexer, ScanSettings
 from .worker import ProcessIndexer
 from .resources import CONTAINER, CPU_COUNT, PROFILES, ram_limits_mb
+from . import __version__
+from .updater import Updater
 from .vault import Vault, VaultError, VaultLocked
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -53,6 +55,7 @@ class Config:
     # e.g. [("/host/Documents", "/Users/me/Documents")].
     path_map: list[tuple[str, str]] = field(default_factory=list)
     can_open_files: bool = True  # False inside a container (no desktop to open files with)
+    updates: bool = False  # in-app updates (the installed desktop app only)
 
 
 # ----------------------------------------------------------------- schemas
@@ -72,6 +75,10 @@ class ItemIn(BaseModel):
     username: str = ""
     password: str | None = None  # plaintext secret; only for kind=password
     tags: list[str] = []
+
+
+class UpdateSettingsIn(BaseModel):
+    auto: bool
 
 
 class FoldersIn(BaseModel):
@@ -196,9 +203,11 @@ def create_app(config: Config) -> FastAPI:
     def is_upload(path: str | None) -> bool:
         return bool(path) and Path(path).parent == upload_dir
     vault = Vault(db, config.auto_lock_seconds, config.scrypt_n)
+    updater = Updater(config.data_dir, enabled=config.updates and config.mode == "local")
 
     app = _new_fastapi()
     app.state.db, app.state.indexer, app.state.vault, app.state.config = db, indexer, vault, config
+    app.state.updater = updater
 
     app.add_middleware(
         SessionMiddleware,
@@ -313,6 +322,8 @@ def create_app(config: Config) -> FastAPI:
                     "container": {"cpus": CONTAINER.cpus,
                                   "memory_mb": round(CONTAINER.memory_bytes / 1e6) if CONTAINER.memory_bytes else None},
                     "supported_formats": SUPPORTED,
+                    "version": __version__,
+                    "update": updater.status() if updater.enabled else None,
                 }
             )
         return result
@@ -504,6 +515,28 @@ def create_app(config: Config) -> FastAPI:
         if more_ocr and ocr.engine().available and not indexer.running:
             indexer.trigger()  # read the newly included files now (unchanged files are skipped)
         return indexer.status()["settings"]
+
+    # ---------------------------------------------------------- updates
+    @app.get("/api/update", dependencies=[Depends(require_auth), Depends(require_local)])
+    def update_status():
+        return updater.status()
+
+    @app.post("/api/update/check", dependencies=[Depends(require_auth), Depends(require_local)])
+    def update_check():
+        if not updater.enabled:
+            raise HTTPException(400, "updates are off in this build")
+        return updater.check()
+
+    @app.post("/api/update/install", dependencies=[Depends(require_auth), Depends(require_local)])
+    def update_install():
+        if not updater.enabled:
+            raise HTTPException(400, "updates are off in this build")
+        return updater.install()
+
+    @app.put("/api/update/settings", dependencies=[Depends(require_auth), Depends(require_local)])
+    def update_settings(data: UpdateSettingsIn):
+        updater.set_auto(data.auto)
+        return updater.status()
 
     @app.put("/api/folders", dependencies=[Depends(require_auth), Depends(require_local)])
     def set_folders(data: FoldersIn):

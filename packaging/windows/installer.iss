@@ -5,7 +5,7 @@
 ;   iscc /DAppVersion=1.0.0 /DSourceDir=..\..\dist\Search Anything packaging\windows\installer.iss
 
 #ifndef AppVersion
-  #define AppVersion "1.0.0"
+  #define AppVersion "0.0.0"
 #endif
 #ifndef SourceDir
   #define SourceDir "..\..\dist\Search Anything"
@@ -46,3 +46,5 @@ Name: "{userdesktop}\Search Anything"; Filename: "{app}\Search Anything.exe"; Ta
 
 [Run]
 Filename: "{app}\Search Anything.exe"; Description: "{cm:LaunchProgram,Search Anything}"; Flags: nowait postinstall skipifsilent
+; In-app updates run this installer silently: reopen the app afterwards.
+Filename: "{app}\Search Anything.exe"; Flags: nowait; Check: WizardSilent

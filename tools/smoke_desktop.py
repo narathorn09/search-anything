@@ -28,6 +28,8 @@ def get(port: int, path: str):
 
 
 def main() -> int:
+    if hasattr(sys.stdout, "reconfigure"):  # Windows consoles default to cp1252: print Thai safely
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     exe = Path(sys.argv[1]).resolve()
     tmp = Path(tempfile.mkdtemp(prefix="sa-smoke-"))
     home, data = tmp / "home", tmp / "data"
