@@ -17,6 +17,8 @@
 
 ![CAHON](docs/screenshot.png)
 
+▶ **[วิดีโอแนะนำ CAHON (55 วินาที)](docs/cahon-promo.mp4)**: ปัญหาเดิมๆ ตอนหาไฟล์ แล้วดูว่าในแอปแก้ยังไง (ทำด้วย [onetake](https://github.com/feitangyuan/onetake), ที่มา: [`promo/`](promo/))
+
 ## ติดตั้งแบบแอป (Windows / Mac)
 
 ดาวน์โหลดตัวติดตั้งจากหน้า [Releases](https://github.com/narathorn09/cahon/releases/latest):
