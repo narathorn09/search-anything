@@ -11,7 +11,9 @@ from __future__ import annotations
 import html
 import json
 import logging
+import os
 import re
+import threading
 import zipfile
 from email import policy
 from email.parser import BytesParser
@@ -20,7 +22,8 @@ from pathlib import Path
 log = logging.getLogger(__name__)
 
 # Bump when extraction improves, so already-indexed files are read again once.
-EXTRACTOR_VERSION = 2
+# v3: PDFs read with pdfium (much faster) and Thai text repaired.
+EXTRACTOR_VERSION = 3
 
 MAX_CONTENT_BYTES = 20 * 1024 * 1024  # don't read content of files bigger than this
 MAX_TEXT_CHARS = 500_000  # cap stored text per file
@@ -55,10 +58,41 @@ SUPPORTED = {
     "ตาราง": "xlsx, xlsm, ods, csv, tsv",
     "สไลด์": "pptx, odp",
     "อื่นๆ": "eml (อีเมล), ipynb (Jupyter), zip (รายชื่อไฟล์ข้างใน)",
+    "ภาพสแกน (OCR)": "PDF ที่สแกนมา และรูปภาพ jpg, png, tiff (ตั้งค่าในหัวข้อ OCR) — ต้องมี Tesseract",
 }
 
 
+# pdfium may only be used by one thread at a time (in the whole process).
+PDFIUM_LOCK = threading.Lock()
+
 # ------------------------------------------------------------------ helpers
+# Thai fonts in PDFs often use private-use code points for shifted tone marks
+# and vowels; map them back to the real characters.
+_THAI_PUA = str.maketrans({
+    0xF700: "\u0e10", 0xF701: "\u0e34", 0xF702: "\u0e35", 0xF703: "\u0e36", 0xF704: "\u0e37",
+    0xF705: "\u0e48", 0xF706: "\u0e49", 0xF707: "\u0e4a", 0xF708: "\u0e4b", 0xF709: "\u0e4c",
+    0xF70A: "\u0e48", 0xF70B: "\u0e49", 0xF70C: "\u0e4a", 0xF70D: "\u0e4b", 0xF70E: "\u0e4c",
+    0xF70F: "\u0e0d", 0xF710: "\u0e31", 0xF711: "\u0e4d", 0xF712: "\u0e47", 0xF713: "\u0e48",
+    0xF714: "\u0e49", 0xF715: "\u0e4a", 0xF716: "\u0e4b", 0xF717: "\u0e4c", 0xF718: "\u0e38",
+    0xF719: "\u0e39", 0xF71A: "\u0e3a",
+})
+_SARA_AM_TONE = re.compile("\u0e4d([\u0e48-\u0e4b])\u0e32")  # ํ + tone + า -> tone + ำ
+_SARA_AM = re.compile("\u0e4d\u0e32")  # ํ + า -> ำ
+_GAP_AFTER_AM = re.compile("\u0e33 (?=[\u0e01-\u0e2e\u0e40-\u0e44])")  # "สำ นักงาน" (PDF layout gap)
+_THAI = re.compile("[\u0e00-\u0e7f\uf700-\uf71a]")
+
+
+def normalize_thai(text: str, pdf: bool = False) -> str:
+    """Make Thai text match what people type: real tone marks, one-character ำ."""
+    if not text or not _THAI.search(text):
+        return text
+    text = text.translate(_THAI_PUA)
+    text = _SARA_AM.sub("\u0e33", _SARA_AM_TONE.sub("\\1\u0e33", text))
+    if pdf:
+        text = _GAP_AFTER_AM.sub("\u0e33", text)
+    return text
+
+
 def decode(raw: bytes) -> str:
     if raw.startswith((b"\xff\xfe", b"\xfe\xff")):
         return raw.decode("utf-16", errors="replace")
@@ -115,6 +149,36 @@ def _html(path: Path) -> str:
 
 
 def _pdf(path: Path) -> str:
+    try:
+        text = _pdf_pdfium(path)
+    except ImportError:
+        text = _pdf_pypdf(path)
+    return normalize_thai(text, pdf=True)
+
+
+def _pdf_pdfium(path: Path) -> str:
+    import pypdfium2 as pdfium
+
+    out = _Collector()
+    with PDFIUM_LOCK:
+        pdf = pdfium.PdfDocument(str(path))
+        try:
+            for i in range(min(len(pdf), MAX_PDF_PAGES)):
+                if out.full:
+                    break
+                page = pdf[i]
+                try:
+                    textpage = page.get_textpage()
+                    out.add(textpage.get_text_range().replace("\r\n", "\n"))
+                    textpage.close()
+                finally:
+                    page.close()
+        finally:
+            pdf.close()
+    return out.text()
+
+
+def _pdf_pypdf(path: Path) -> str:
     from pypdf import PdfReader
 
     out = _Collector()
@@ -273,11 +337,56 @@ def _zip(path: Path) -> str:
         return "\n".join(n for n in z.namelist() if not n.endswith("/"))[:MAX_TEXT_CHARS]
 
 
+# ---------------------------------------------------------- native (Rust)
+# The optional `sa_native` module (native/ in this repo, written in Rust) gives
+# exactly the same text for Word/Excel/PowerPoint files, 6-30x faster and
+# without holding the GIL, so scan threads really run in parallel. Without it
+# (or with SA_NATIVE=0) the Python readers above are used. If the Rust reader
+# fails on a file, the Python reader gets a try too.
+try:
+    if os.environ.get("SA_NATIVE", "1") == "0":
+        raise ImportError("disabled by SA_NATIVE=0")
+    import sa_native as _native
+except ImportError:
+    _native = None
+
+NATIVE = _native is not None
+
+
+def _with_native(native_fn, python_fn):
+    def handler(path: Path) -> str:
+        try:
+            return native_fn(str(path), MAX_TEXT_CHARS)
+        except Exception as exc:
+            log.debug("native reader failed for %s (%s); using Python", path, exc)
+            return python_fn(path)
+
+    handler.__name__ = python_fn.__name__ + "_native"
+    return handler
+
+
+if _native is not None:
+    _docx_fast = _with_native(_native.docx_text, _docx)
+    _xlsx_fast = _with_native(_native.xlsx_text, _xlsx)
+    _pptx_fast = _with_native(_native.pptx_text, _pptx)
+else:
+    _docx_fast, _xlsx_fast, _pptx_fast = _docx, _xlsx, _pptx
+
 HANDLERS = {
-    ".pdf": _pdf, ".docx": _docx, ".xlsx": _xlsx, ".xlsm": _xlsx, ".pptx": _pptx,
+    ".pdf": _pdf, ".docx": _docx_fast, ".xlsx": _xlsx_fast, ".xlsm": _xlsx_fast, ".pptx": _pptx_fast,
     ".rtf": _rtf, ".epub": _epub, ".eml": _eml, ".ipynb": _ipynb, ".zip": _zip,
     **{e: _html for e in HTML_EXTENSIONS}, **{e: _odf for e in ODF_EXTENSIONS},
 }
+
+
+OFFICE_EXTENSIONS = {".docx", ".xlsx", ".xlsm", ".pptx"}
+
+
+def is_heavy(path: str) -> bool:
+    """Readers worth a helper process: pdfium (one at a time per process), and
+    the Python Office readers when the Rust module is missing (they hold the GIL)."""
+    suffix = os.path.splitext(path)[1].lower()
+    return suffix == ".pdf" or (not NATIVE and suffix in OFFICE_EXTENSIONS)
 
 
 def is_plain_text_type(path: Path) -> bool:
