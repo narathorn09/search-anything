@@ -577,13 +577,9 @@ mark { background: var(--color-mark); color: inherit; border-radius: 3px; paddin
 .mascot.big { width: 112px; height: 112px; }
 .mascot.small { width: 46px; height: 46px; }
 .mascot svg { width: 100%; height: 100%; overflow: visible; }
-.mascot .lens { fill: var(--mascot-face); stroke: var(--mascot-ring); stroke-width: 7; }
-.mascot .handle { stroke: var(--mascot-ring); stroke-width: 9; stroke-linecap: round; transform-origin: 66px 66px; }
-.mascot .eye { fill: #2b2b2b; transform-box: fill-box; transform-origin: center; }
-.mascot .shine { fill: #fff; }
-.mascot .cheek { fill: var(--mascot-cheek); opacity: .8; }
-.mascot .mouth { fill: none; stroke: #2b2b2b; stroke-width: 3; stroke-linecap: round; }
-.mascot .glint { fill: none; stroke: #fff; stroke-width: 4; stroke-linecap: round; opacity: .8; }
+/* "น้องคาหน": the eyes blink, the magnifier (with the hand) waves around the hand. */
+.mascot .eye { transform-box: fill-box; transform-origin: center; }
+.mascot .handle { transform-origin: 376px 388px; }
 
 .guide { position: fixed; inset: 0; z-index: 330; display: grid; place-items: center; padding: var(--space-3); }
 .guide-window { width: min(1080px, 100%); max-height: calc(100vh - 32px); display: grid; grid-template-rows: auto minmax(0, 1fr);
@@ -849,4 +845,17 @@ dialog .note { font-size: var(--text-supporting); color: var(--color-text-second
   :root[data-detail-mode="side"] #detail { position: static; max-height: none; min-height: 0; overflow-y: auto;
     overscroll-behavior: contain; }
   :root[data-filters="rail"] #filters { position: static; min-height: 0; overflow-y: auto; }
+}
+
+/* Brand: mascot next to the name */
+#login .display { display: flex; align-items: center; gap: 12px; }
+#login .display::before { content: ""; width: 64px; height: 64px; flex-shrink: 0;
+  background: url("/static/brand/mascot.svg") center / contain no-repeat; }
+.about-brand { display: inline-flex; align-items: center; gap: 8px; }
+.about-brand img { width: 36px; height: 36px; }
+.empty-mascot { width: 96px; height: 96px; margin: 0 auto 10px; }
+.empty-mascot.lost svg { transform: rotate(-12deg); } /* "ไม่พบ": head tilted, puzzled */
+@media (prefers-reduced-motion: no-preference) {
+  .empty-mascot.lost svg { animation: none; }
+  .empty-mascot.lost .handle { animation: wiggle 1.1s var(--ease-bounce) 1 .2s; }
 }

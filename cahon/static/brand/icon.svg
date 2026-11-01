@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <title>CAHON</title>
+  <rect x="16" y="16" width="480" height="480" rx="112" fill="#1d2b53"/>
+  <rect x="16" y="16" width="480" height="480" rx="112" fill="url(#g)"/>
+  <defs><radialGradient id="g" cx=".3" cy=".25" r=".9"><stop offset="0" stop-color="#2f4a8a"/><stop offset="1" stop-color="#1d2b53"/></radialGradient></defs>
+  <g transform="translate(36 22) scale(.86)">
+  <ellipse cx="262" cy="470" rx="150" ry="16" fill="#1d2b53" opacity="0"/>
+  <g stroke="#1d2b53" stroke-width="14" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M200 440 q-6 22 -34 22" fill="none"/>
+    <path d="M300 444 q8 20 36 18" fill="none"/>
+    <g transform="rotate(-6 262 300)">
+      <path d="M112 302 C112 170 190 108 270 108 C362 108 424 178 424 300 C424 402 352 452 266 452 C176 452 112 402 112 302 Z" fill="#7be0b5"/>
+      <path d="M244 110 C236 76 266 62 276 90" fill="none"/>
+      <path d="M114 300 q-34 6 -40 44" fill="none"/>
+    </g>
+  </g>
+  <path d="M150 246 C160 190 198 160 238 150" stroke="#fff" stroke-width="14" stroke-linecap="round" fill="none" opacity=".75"/>
+  <circle cx="186" cy="268" r="23" fill="#1d2b53"/><circle cx="193" cy="260" r="8" fill="#fff"/>
+  <ellipse cx="166" cy="330" rx="21" ry="12" fill="#ff8fa3" opacity=".85"/>
+  <path d="M214 352 Q246 386 280 350" stroke="#1d2b53" stroke-width="13" stroke-linecap="round" fill="#7a1f3d"/>
+  <path d="M236 366 q8 26 26 14 q8 -8 0 -18 z" fill="#ff6b8b"/>
+  <path d="M350 366 L440 456" stroke="#1d2b53" stroke-width="46" stroke-linecap="round"/>
+  <path d="M350 366 L440 456" stroke="#ff8a3d" stroke-width="26" stroke-linecap="round"/>
+  <path d="M378 394 l14 14" stroke="#ffd15c" stroke-width="8" stroke-linecap="round"/>
+  <circle cx="314" cy="268" r="94" fill="#1d2b53"/>
+  <circle cx="314" cy="268" r="73" fill="#eaf6ff"/>
+  <circle cx="322" cy="274" r="51" fill="#1d2b53"/>
+  <circle cx="342" cy="252" r="17" fill="#fff"/><circle cx="304" cy="298" r="8" fill="#fff"/>
+  <path d="M262 218 a72 72 0 0 1 62 -22" stroke="#fff" stroke-width="10" stroke-linecap="round" fill="none" opacity=".95"/>
+  <path d="M352 352 q34 6 28 40" stroke="#1d2b53" stroke-width="14" stroke-linecap="round" fill="#7be0b5"/>
+  <circle cx="376" cy="388" r="15" fill="#7be0b5" stroke="#1d2b53" stroke-width="12"/>
+</g>
+</svg>

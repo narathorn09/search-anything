@@ -488,7 +488,9 @@ function renderResults() {
   updateCount();
   if (!state.results.length) {
     const fresh = !t.length;
-    ul.append(el("li", { class: "empty reveal" },
+    const mascot = el("div", { class: `mascot empty-mascot${fresh ? "" : " lost"}` });
+    mascot.innerHTML = mascotSvg(); // static, trusted markup
+    ul.append(el("li", { class: "empty reveal" }, mascot,
       el("strong", {}, fresh ? "พิมพ์เพื่อค้นหา" : "ไม่พบผลลัพธ์"),
       fresh ? "หรือกด เพิ่ม เพื่ออัปโหลดไฟล์ จดโน้ต เก็บลิงก์ หรือรหัสผ่าน" : "ลองคำอื่น หรือคำที่ยาวขึ้น"));
     return;
@@ -963,14 +965,29 @@ $("#viewer-code").addEventListener("click", (e) => {
 window.addEventListener("resize", () => { if (viewerOpen()) { viewer.lastKey = ""; scheduleRender(); } });
 
 // ------------------------------------------------------------------ guide
-/** "น้องค้น" — a magnifying glass with a face (SVG drawn for this app). */
+/** "น้องคาหน" — CAHON's mascot: a round blob peeking through a magnifier
+    (static/brand/mascot.svg; classes drive the blink/bob/wave animations). */
 function mascotSvg() {
-  return '<svg viewBox="0 0 80 80"><line class="handle" x1="55" y1="55" x2="72" y2="72"/>' +
-    '<circle class="lens" cx="36" cy="36" r="27"/><path class="glint" d="M20 26a18 18 0 0 1 9-9"/>' +
-    '<ellipse class="eye" cx="28" cy="35" rx="3.4" ry="4.4"/><ellipse class="eye" cx="44" cy="35" rx="3.4" ry="4.4"/>' +
-    '<circle class="shine" cx="29.2" cy="33.4" r="1.2"/><circle class="shine" cx="45.2" cy="33.4" r="1.2"/>' +
-    '<ellipse class="cheek" cx="21.5" cy="43" rx="4" ry="2.6"/><ellipse class="cheek" cx="50.5" cy="43" rx="4" ry="2.6"/>' +
-    '<path class="mouth" d="M31 44q5 5 10 0"/></svg>';
+  return '<svg viewBox="0 0 512 512" aria-hidden="true">' +
+    '<ellipse cx="262" cy="470" rx="150" ry="16" fill="#1d2b53" opacity=".12"/>' +
+    '<g stroke="#1d2b53" stroke-width="14" stroke-linecap="round" stroke-linejoin="round">' +
+    '<path d="M200 440q-6 22-34 22" fill="none"/><path d="M300 444q8 20 36 18" fill="none"/>' +
+    '<g transform="rotate(-6 262 300)"><path d="M112 302C112 170 190 108 270 108C362 108 424 178 424 300C424 402 352 452 266 452C176 452 112 402 112 302Z" fill="#7be0b5"/>' +
+    '<path d="M244 110C236 76 266 62 276 90" fill="none"/><path d="M114 300q-34 6-40 44" fill="none"/></g></g>' +
+    '<path d="M150 246C160 190 198 160 238 150" stroke="#fff" stroke-width="14" stroke-linecap="round" fill="none" opacity=".75"/>' +
+    '<g class="eye"><circle cx="186" cy="268" r="23" fill="#1d2b53"/><circle cx="193" cy="260" r="8" fill="#fff"/></g>' +
+    '<ellipse cx="166" cy="330" rx="21" ry="12" fill="#ff8fa3" opacity=".85"/>' +
+    '<path d="M214 352Q246 386 280 350" stroke="#1d2b53" stroke-width="13" stroke-linecap="round" fill="#7a1f3d"/>' +
+    '<path d="M236 366q8 26 26 14q8-8 0-18z" fill="#ff6b8b"/>' +
+    '<g class="handle">' +
+    '<path d="M350 366L440 456" stroke="#1d2b53" stroke-width="46" stroke-linecap="round"/>' +
+    '<path d="M350 366L440 456" stroke="#ff8a3d" stroke-width="26" stroke-linecap="round"/>' +
+    '<path d="M378 394l14 14" stroke="#ffd15c" stroke-width="8" stroke-linecap="round"/>' +
+    '<circle cx="314" cy="268" r="94" fill="#1d2b53"/><circle cx="314" cy="268" r="73" fill="#eaf6ff"/>' +
+    '<g class="eye"><circle cx="322" cy="274" r="51" fill="#1d2b53"/><circle cx="342" cy="252" r="17" fill="#fff"/><circle cx="304" cy="298" r="8" fill="#fff"/></g>' +
+    '<path d="M262 218a72 72 0 0 1 62-22" stroke="#fff" stroke-width="10" stroke-linecap="round" fill="none" opacity=".95"/>' +
+    '<path d="M352 352q34 6 28 40" stroke="#1d2b53" stroke-width="14" stroke-linecap="round" fill="#7be0b5"/>' +
+    '<circle cx="376" cy="388" r="15" fill="#7be0b5" stroke="#1d2b53" stroke-width="12"/></g></svg>';
 }
 document.querySelectorAll(".mascot").forEach((m) => { m.innerHTML = mascotSvg(); }); // static, trusted markup
 
@@ -1536,7 +1553,7 @@ function pollUpdate() {
 function pageAbout() {
   const s = state.status;
   const u = s.update;
-  const rows = [pref("เวอร์ชันที่ใช้อยู่", "CAHON (คาหน) · ค้นหาทุกอย่างในช่องเดียว", el("strong", {}, s.version || "—"))];
+  const rows = [pref("เวอร์ชันที่ใช้อยู่", el("span", { class: "about-brand" }, el("img", { src: "/static/brand/mascot.svg", alt: "" }), "CAHON (คาหน) · ค้นหาทุกอย่างในช่องเดียว"), el("strong", {}, s.version || "—"))];
   if (!u) {
     rows.push(pref("อัปเดต", s.in_container
       ? "รันใน Docker: ดึงโค้ดใหม่ (git pull) แล้วรันสคริปต์ start อีกครั้ง"
