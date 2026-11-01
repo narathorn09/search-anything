@@ -2,6 +2,10 @@
 
 ![CAHON](docs/logo.png)
 
+[![วิดีโอแนะนำ CAHON: หาไฟล์ไม่เจอ → ค้นในช่องเดียวเจอทุกอย่าง](docs/cahon-promo.gif)](docs/cahon-promo.mp4)
+
+<sub>▶ กดที่ภาพเพื่อดูวิดีโอแบบมีเสียง ([MP4, 55 วินาที](docs/cahon-promo.mp4)) · ทำด้วย [onetake](https://github.com/feitangyuan/onetake) · ที่มา: [`promo/`](promo/)</sub>
+
 **CAHON** ชื่อมาจากคำผวนของ **ค้นหา** — ช่องค้นหาช่องเดียว ค้นได้ทุกอย่าง: **ชื่อไฟล์ เนื้อหาในไฟล์ โน้ต ลิงก์ (bookmark) และรหัสผ่าน**
 พิมพ์แล้วเห็นผลลัพธ์ทันที ไม่ต้องไล่เปิดหลายที่
 
@@ -17,7 +21,6 @@
 
 ![CAHON](docs/screenshot.png)
 
-▶ **[วิดีโอแนะนำ CAHON (55 วินาที)](docs/cahon-promo.mp4)**: ปัญหาเดิมๆ ตอนหาไฟล์ แล้วดูว่าในแอปแก้ยังไง (ทำด้วย [onetake](https://github.com/feitangyuan/onetake), ที่มา: [`promo/`](promo/))
 
 ## ติดตั้งแบบแอป (Windows / Mac)
 
