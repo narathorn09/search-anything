@@ -40,6 +40,36 @@ SKIPPED_META = "skipped_files"
 _CTX = mp.get_context("spawn")  # safe with threads, same behaviour on every OS
 
 
+class StopFlag:
+    """A stop signal shared with the worker process, with no lock inside.
+
+    multiprocessing.Event guards its flag with a lock; if the RAM watchdog
+    kills the worker while it holds that lock (it checks the flag very often),
+    the app's next is_set() waits forever. A single shared byte, read and
+    written without a lock, cannot get stuck that way.
+    """
+
+    def __init__(self):
+        self._v = _CTX.RawValue("b", 0)
+
+    def is_set(self) -> bool:
+        return bool(self._v.value)
+
+    def set(self) -> None:
+        self._v.value = 1
+
+    def clear(self) -> None:
+        self._v.value = 0
+
+    def wait(self, timeout: float | None = None) -> bool:
+        end = None if timeout is None else time.monotonic() + timeout
+        while not self.is_set():
+            if end is not None and time.monotonic() >= end:
+                return False
+            time.sleep(0.05)
+        return True
+
+
 def lower_process_priority() -> None:
     """Best effort: background priority for the whole worker process."""
     try:
@@ -108,7 +138,7 @@ class ProcessIndexer(Indexer):
 
     def __init__(self, db: Database, folders=None, settings=None, hard_ram_mb: int | None = None,
                  max_restarts: int = MAX_RESTARTS):
-        super().__init__(db, folders, settings, stop_event=_CTX.Event())
+        super().__init__(db, folders, settings, stop_event=StopFlag())
         self.hard_ram_mb = hard_ram_mb  # None = resources.ram_limits_mb(profile)[1]
         self.max_restarts = max_restarts
         self.worker_pid: int | None = None

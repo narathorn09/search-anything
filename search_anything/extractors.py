@@ -23,7 +23,8 @@ log = logging.getLogger(__name__)
 
 # Bump when extraction improves, so already-indexed files are read again once.
 # v3: PDFs read with pdfium (much faster) and Thai text repaired.
-EXTRACTOR_VERSION = 3
+# v4: Thai syllables duplicated by Chrome/Skia PDFs removed; line-break hyphens kept.
+EXTRACTOR_VERSION = 4
 
 MAX_CONTENT_BYTES = 20 * 1024 * 1024  # don't read content of files bigger than this
 MAX_TEXT_CHARS = 500_000  # cap stored text per file
@@ -169,13 +170,93 @@ def _pdf_pdfium(path: Path) -> str:
                 page = pdf[i]
                 try:
                     textpage = page.get_textpage()
-                    out.add(textpage.get_text_range().replace("\r\n", "\n"))
+                    text = textpage.get_text_range()
+                    if _THAI_MARK.search(text):
+                        text = _thai_page_text(textpage)
+                    out.add(text.replace("\r\n", "\n").translate(_PDF_HYPHEN))
                     textpage.close()
                 finally:
                     page.close()
         finally:
             pdf.close()
     return out.text()
+
+
+_PDF_HYPHEN = str.maketrans({0xFFFE: "-", 0x02: "-"})  # pdfium: hyphen where a line breaks
+_THAI_MARK = re.compile("[\u0e31\u0e34-\u0e3a\u0e47-\u0e4e]")
+_THAI_CHAR = re.compile("[\u0e00-\u0e7f]")
+
+
+def _thai_page_text(textpage) -> str:
+    """Page text, char by char, repairing two pdfium/Chrome (Skia) artefacts:
+
+    * a Thai syllable written twice at the same spot: Skia maps the glyph of
+      a vowel/tone mark back to the whole syllable ("ผู้ใช้" came out as
+      "ผู้ใผู้ ช้"), so the copy that sits inside the previous syllable is dropped,
+      with the spaces/line breaks pdfium invented around that copy;
+    * real spaces between words are kept (in Chrome PDFs every space is
+      "invented" by pdfium, so only those next to a dropped copy go).
+    """
+    import ctypes
+
+    import pypdfium2.raw as raw
+
+    tp = textpage.raw
+    n = raw.FPDFText_CountChars(tp)
+    left, right, bottom, top = (ctypes.c_double() for _ in range(4))
+    chars = []  # (char, left, right, generated)
+    for i in range(n):
+        code = raw.FPDFText_GetUnicode(tp, i)
+        raw.FPDFText_GetCharBox(tp, i, ctypes.byref(left), ctypes.byref(right), ctypes.byref(bottom), ctypes.byref(top))
+        chars.append((chr(code) if code else "", left.value, right.value, raw.FPDFText_IsGenerated(tp, i) == 1))
+    return repair_thai_chars(chars)
+
+
+def repair_thai_chars(chars: list[tuple[str, float, float, bool]]) -> str:
+    """chars: (character, left x, right x, invented by pdfium) in reading order."""
+
+    # Thai syllables: a base letter followed by its combining marks.
+    clusters = []  # [text, left, right, generated]
+    for ch, l, r, gen in chars:
+        if clusters and _THAI_MARK.match(ch) and _THAI_CHAR.match(clusters[-1][0][-1:]):
+            c = clusters[-1]
+            c[0] += ch
+            c[1], c[2] = min(c[1], l), max(c[2], r)
+        else:
+            clusters.append([ch, l, r, gen])
+
+    dropped = [False] * len(clusters)
+    kept: list[int] = []
+    for i, (text, l, r, gen) in enumerate(clusters):
+        if _THAI_MARK.search(text):
+            middle = (l + r) / 2
+            # The same syllable among the last few, and this one sits inside it.
+            if any(clusters[k][0] == text and clusters[k][1] - 0.5 <= middle <= clusters[k][2] + 0.5
+                   for k in kept[-4:]):
+                dropped[i] = True
+                continue
+        kept.append(i)
+
+    def is_gap(i: int) -> bool:  # whitespace pdfium invented (spaces, line breaks)
+        text, _l, _r, gen = clusters[i]
+        return gen and text in (" ", "\r", "\n")
+
+    # Invented whitespace next to a dropped copy was caused by it (the copy sits
+    # off the line): drop it too, when there is Thai text on both sides.
+    for i in range(len(clusters)):
+        if dropped[i] or not is_gap(i):
+            continue
+        a = i - 1
+        while a >= 0 and (dropped[a] or is_gap(a)):
+            a -= 1
+        b = i + 1
+        while b < len(clusters) and (dropped[b] or is_gap(b)):
+            b += 1
+        near_copy = any(dropped[k] for k in range(a + 1, b))
+        if near_copy and a >= 0 and b < len(clusters) and _THAI_CHAR.match(clusters[a][0][-1:]) \
+                and _THAI_CHAR.match(clusters[b][0][:1]):
+            dropped[i] = True
+    return "".join(c[0] for i, c in enumerate(clusters) if not dropped[i])
 
 
 def _pdf_pypdf(path: Path) -> str:
