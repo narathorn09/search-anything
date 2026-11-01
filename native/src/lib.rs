@@ -1,8 +1,8 @@
-//! Fast text extraction for Search Anything (docx, xlsx, pptx and the old
+//! Fast text extraction for CAHON (docx, xlsx, pptx and the old
 //! doc, xls, ppt).
 //!
 //! Produces exactly the same text as the Python extractors in
-//! `search_anything/extractors.py` (openpyxl, python-docx, python-pptx), but
+//! `cahon/extractors.py` (openpyxl, python-docx, python-pptx), but
 //! several times faster and without holding Python's GIL, so the scanner's
 //! threads really run in parallel. `tests/test_native.py` checks the outputs
 //! are identical.
@@ -92,20 +92,20 @@ mod python {
         run(py, move || crate::xlsx::extract_xls(&path, cap))
     }
 
-    /// Text of an old .doc document (same as search_anything/legacy.py).
+    /// Text of an old .doc document (same as cahon/legacy.py).
     #[pyfunction]
     fn doc_text(py: Python<'_>, path: String, cap: usize) -> PyResult<String> {
         run(py, move || crate::legacy::doc(&path, cap))
     }
 
-    /// Text of an old .ppt presentation (same as search_anything/legacy.py).
+    /// Text of an old .ppt presentation (same as cahon/legacy.py).
     #[pyfunction]
     fn ppt_text(py: Python<'_>, path: String, cap: usize) -> PyResult<String> {
         run(py, move || crate::legacy::ppt(&path, cap))
     }
 
     #[pymodule]
-    fn sa_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    fn cahon_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
         m.add_function(wrap_pyfunction!(xls_text, m)?)?;
         m.add_function(wrap_pyfunction!(doc_text, m)?)?;
         m.add_function(wrap_pyfunction!(ppt_text, m)?)?;

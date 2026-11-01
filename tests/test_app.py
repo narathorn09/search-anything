@@ -4,9 +4,9 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from search_anything.app import Config, create_app
-from search_anything.db import Database
-from search_anything.indexer import Indexer
+from cahon.app import Config, create_app
+from cahon.db import Database
+from cahon.indexer import Indexer
 
 FAST_SCRYPT = 2**10  # keep tests fast; production uses 2**15
 
@@ -170,7 +170,7 @@ def test_server_mode_requires_login_and_supports_upload(tmp_path):
 
 def test_ui_served(tmp_path):
     c = make_client(tmp_path)
-    assert "Search Anything" in c.get("/").text
+    assert "CAHON" in c.get("/").text
     assert c.get("/static/app.js").status_code == 200
 
 
@@ -335,7 +335,7 @@ def test_container_local_mode_maps_paths_and_downloads(tmp_path):
 
 
 def test_path_map_parsing():
-    from search_anything.__main__ import _parse_path_map
+    from cahon.__main__ import _parse_path_map
     assert _parse_path_map("/host/Documents=/Users/me/Documents;/host/Work=D:\\Work;;bad") == [
         ("/host/Documents", "/Users/me/Documents"), ("/host/Work", "D:\\Work")]
 
@@ -375,3 +375,21 @@ def test_image_preview_only_for_raster_images(tmp_path):
     assert r.headers["content-disposition"] == "inline"
     assert c.get(f"/api/files/{ids['page.html']}/preview").status_code == 415
     assert c.get(f"/api/files/{ids['logo.svg']}/preview").status_code == 415
+
+
+def test_clipboard_endpoint_desktop_only(tmp_path, monkeypatch):
+    from cahon import desktop
+
+    copied = []
+    monkeypatch.setattr(desktop, "copy_to_clipboard", copied.append)
+    web = TestClient(create_app(Config(data_dir=tmp_path / "a", allowed_hosts=["testserver"], background_indexing=False)))
+    assert web.get("/api/status").json()["desktop"] is False
+    assert web.post("/api/clipboard", json={"text": "x"}).status_code == 404
+    app = TestClient(create_app(Config(data_dir=tmp_path / "b", allowed_hosts=["testserver"],
+                                       background_indexing=False, desktop=True)))
+    assert app.get("/api/status").json()["desktop"] is True
+    assert app.post("/api/clipboard", json={"text": "สวัสดี path/ไฟล์.pdf"}).json() == {"ok": True}
+    assert copied == ["สวัสดี path/ไฟล์.pdf"]
+    # Another website (cross-origin request) may not write to the clipboard.
+    r = app.post("/api/clipboard", json={"text": "evil"}, headers={"Origin": "https://evil.example"})
+    assert r.status_code == 403 and copied == ["สวัสดี path/ไฟล์.pdf"]

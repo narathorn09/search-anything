@@ -6,7 +6,7 @@
  * Defaults show (almost) everything; users switch off what they don't want
  * in Settings, or pick the "minimal" preset.
  */
-const PREFS_KEY = "sa-prefs";
+const PREFS_KEY = "cahon-prefs";
 // Bump when defaults change in a way that should replace values saved by an
 // older version (v2: everything visible by default instead of minimal).
 const PREFS_VERSION = 2;

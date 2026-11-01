@@ -1,7 +1,7 @@
 """Command line entry point.
 
-    python -m search_anything --mode local --folder ~/Documents
-    SA_PASSWORD=... python -m search_anything --mode server --host 0.0.0.0
+    python -m cahon --mode local --folder ~/Documents
+    CAHON_PASSWORD=... python -m cahon --mode server --host 0.0.0.0
 """
 
 from __future__ import annotations
@@ -22,54 +22,54 @@ from .app import Config, create_app
 
 
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(prog="search_anything", description=__doc__,
+    parser = argparse.ArgumentParser(prog="cahon", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--mode", choices=["local", "server"],
-                        default=os.environ.get("SA_MODE", "local"))
-    parser.add_argument("--host", default=os.environ.get("SA_HOST"))
-    parser.add_argument("--port", type=int, default=int(os.environ.get("SA_PORT", "8765")))
-    parser.add_argument("--data-dir", default=os.environ.get("SA_DATA_DIR", "data"))
+                        default=os.environ.get("CAHON_MODE", "local"))
+    parser.add_argument("--host", default=os.environ.get("CAHON_HOST"))
+    parser.add_argument("--port", type=int, default=int(os.environ.get("CAHON_PORT", "8765")))
+    parser.add_argument("--data-dir", default=os.environ.get("CAHON_DATA_DIR", "data"))
     parser.add_argument("--folder", action="append", default=[],
-                        help="folder to index (repeatable). Also SA_FOLDERS, separated by os.pathsep")
+                        help="folder to index (repeatable). Also CAHON_FOLDERS, separated by os.pathsep")
     parser.add_argument("--reindex-interval", type=int,
-                        default=int(os.environ.get("SA_REINDEX_INTERVAL", "300")),
+                        default=int(os.environ.get("CAHON_REINDEX_INTERVAL", "300")),
                         help="seconds between automatic re-scans")
-    parser.add_argument("--auto-lock", type=int, default=int(os.environ.get("SA_AUTO_LOCK", "900")),
+    parser.add_argument("--auto-lock", type=int, default=int(os.environ.get("CAHON_AUTO_LOCK", "900")),
                         help="seconds of inactivity before the password vault locks")
     parser.add_argument("--allowed-host", action="append", default=None,
                         help="hostname allowed in the Host header (server mode; repeatable)")
-    parser.add_argument("--max-upload-mb", type=int, default=int(os.environ.get("SA_MAX_UPLOAD_MB", "200")),
+    parser.add_argument("--max-upload-mb", type=int, default=int(os.environ.get("CAHON_MAX_UPLOAD_MB", "200")),
                         help="largest file accepted by the upload button")
     parser.add_argument("--open-browser", action="store_true",
                         help="open the app in the default browser once it is ready")
     parser.add_argument("--default-folders", action="store_true",
                         help="local mode, first run only: index Documents, Desktop and Downloads")
     parser.add_argument("--https-cookie", action="store_true",
-                        default=os.environ.get("SA_HTTPS_COOKIE") == "1",
+                        default=os.environ.get("CAHON_HTTPS_COOKIE") == "1",
                         help="mark the login cookie Secure (use behind HTTPS)")
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
     folders = list(args.folder)
-    if os.environ.get("SA_FOLDERS"):
-        folders += [f for f in os.environ["SA_FOLDERS"].split(os.pathsep) if f]
+    if os.environ.get("CAHON_FOLDERS"):
+        folders += [f for f in os.environ["CAHON_FOLDERS"].split(os.pathsep) if f]
 
     host = args.host or ("127.0.0.1" if args.mode == "local" else "0.0.0.0")
-    in_container = os.environ.get("SA_IN_CONTAINER") == "1"
+    in_container = os.environ.get("CAHON_IN_CONTAINER") == "1"
     if args.mode == "local" and host not in ("127.0.0.1", "localhost") and not in_container:
         sys.exit("local mode has no login, so it only listens on 127.0.0.1. Use --mode server.")
-    # SA_IN_CONTAINER=1 (set by the start scripts): local mode inside Docker must
+    # CAHON_IN_CONTAINER=1 (set by the start scripts): local mode inside Docker must
     # listen on the container's network; the scripts publish the port on the
     # host's 127.0.0.1 only, so it is still reachable from this computer only.
 
-    password = os.environ.get("SA_PASSWORD")
+    password = os.environ.get("CAHON_PASSWORD")
     if args.mode == "server" and not password:
-        sys.exit("server mode needs a login password: set the SA_PASSWORD environment variable.")
+        sys.exit("server mode needs a login password: set the CAHON_PASSWORD environment variable.")
 
     allowed_hosts = args.allowed_host
-    if allowed_hosts is None and os.environ.get("SA_ALLOWED_HOSTS"):
-        allowed_hosts = os.environ["SA_ALLOWED_HOSTS"].split(",")
+    if allowed_hosts is None and os.environ.get("CAHON_ALLOWED_HOSTS"):
+        allowed_hosts = os.environ["CAHON_ALLOWED_HOSTS"].split(",")
 
     data_dir = Path(args.data_dir).expanduser()
     try:
@@ -100,7 +100,7 @@ def main(argv: list[str] | None = None) -> None:
         allowed_hosts=allowed_hosts,
         https_only_cookie=args.https_cookie,
         max_upload_mb=args.max_upload_mb,
-        path_map=_parse_path_map(os.environ.get("SA_PATH_MAP", "")),
+        path_map=_parse_path_map(os.environ.get("CAHON_PATH_MAP", "")),
         can_open_files=not in_container,
     )
     # Background work (counting, scanning supervision) shares the GIL with the
@@ -109,7 +109,7 @@ def main(argv: list[str] | None = None) -> None:
     sys.setswitchinterval(0.001)
     app = create_app(config)
     url = f"http://{'localhost' if host in ('127.0.0.1', '0.0.0.0') else host}:{args.port}"
-    print(f"Search Anything ({args.mode} mode) -> {url}   (Ctrl+C to stop)", flush=True)
+    print(f"CAHON ({args.mode} mode) -> {url}   (Ctrl+C to stop)", flush=True)
     if args.open_browser:
         threading.Thread(target=_open_when_ready, args=(url,), daemon=True).start()
     uvicorn.run(app, host=host, port=args.port, log_level="warning")

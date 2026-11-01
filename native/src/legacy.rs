@@ -1,5 +1,5 @@
 //! Old binary Office formats (97-2003): Word .doc and PowerPoint .ppt.
-//! Same rules, same output as `search_anything/legacy.py` (see there).
+//! Same rules, same output as `cahon/legacy.py` (see there).
 //! (.xls is read with calamine in xlsx.rs.)
 
 use std::fs::File;

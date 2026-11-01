@@ -138,10 +138,10 @@ def fmt(seconds: float) -> str:
 
 
 def run(root: Path, profile_types: bool = True) -> dict:
-    from search_anything.db import Database
-    from search_anything.extractors import extract_text
-    from search_anything.indexer import Indexer, ScanSettings
-    from search_anything.worker import ProcessIndexer
+    from cahon.db import Database
+    from cahon.extractors import extract_text
+    from cahon.indexer import Indexer, ScanSettings
+    from cahon.worker import ProcessIndexer
 
     report: dict = {}
     files = [(p, n, st) for p, n, st in Indexer._walk(str(root))]
@@ -222,9 +222,9 @@ def run(root: Path, profile_types: bool = True) -> dict:
 
 
 def full_scans(root: Path, report: dict) -> None:
-    from search_anything.db import Database
-    from search_anything.indexer import ScanSettings
-    from search_anything.worker import ProcessIndexer
+    from cahon.db import Database
+    from cahon.indexer import ScanSettings
+    from cahon.worker import ProcessIndexer
 
     # full scans
     # The default: a separate worker process (its own RAM is what the brake watches).
@@ -263,7 +263,7 @@ if __name__ == "__main__":
     if cmd == "make":
         make(where)
     elif cmd == "scan":  # end-to-end scans only
-        from search_anything.extractors import NATIVE
+        from cahon.extractors import NATIVE
         print("native (Rust) readers:", NATIVE)
         full_scans(where, {})
     else:

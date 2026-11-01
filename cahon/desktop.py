@@ -3,8 +3,8 @@
 * Opens the app in its own window (pywebview: Edge WebView2 on Windows,
   WebKit on macOS). If that is not possible it opens the default browser.
 * Data lives in the user's app-data folder, not next to the program:
-  Windows %LOCALAPPDATA%\\SearchAnything, macOS ~/Library/Application
-  Support/Search Anything, Linux ~/.local/share/search-anything.
+  Windows %LOCALAPPDATA%\\CAHON, macOS ~/Library/Application Support/CAHON,
+  Linux ~/.local/share/cahon.
 * Only one copy runs: starting it again just shows the running one.
 * Local mode only (no login), listening on 127.0.0.1.
 * In the installed app, Tesseract (OCR) ships inside the bundle.
@@ -23,20 +23,19 @@ import urllib.request
 import webbrowser
 from pathlib import Path
 
-APP_NAME = "Search Anything"
+APP_NAME = "CAHON"
 PREFERRED_PORT = 8765
-log = logging.getLogger("search_anything.desktop")
+log = logging.getLogger("cahon.desktop")
 
 
 def data_dir() -> Path:
-    if os.environ.get("SA_DATA_DIR"):
-        return Path(os.environ["SA_DATA_DIR"]).expanduser()
+    if os.environ.get("CAHON_DATA_DIR"):
+        return Path(os.environ["CAHON_DATA_DIR"]).expanduser()
     if sys.platform.startswith("win"):
-        base = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
-        return base / "SearchAnything"
+        return Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local") / "CAHON"
     if sys.platform == "darwin":
-        return Path.home() / "Library" / "Application Support" / APP_NAME
-    return Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share") / "search-anything"
+        return Path.home() / "Library" / "Application Support" / "CAHON"
+    return Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share") / "cahon"
 
 
 def bundle_dir() -> Path | None:
@@ -47,11 +46,11 @@ def bundle_dir() -> Path | None:
 def use_bundled_tesseract() -> None:
     """Point OCR at the Tesseract inside the installed app, if it is there."""
     base = bundle_dir()
-    if base is None or os.environ.get("SA_TESSERACT"):
+    if base is None or os.environ.get("CAHON_TESSERACT"):
         return
     exe = base / "tesseract" / ("tesseract.exe" if sys.platform.startswith("win") else "tesseract")
     if exe.is_file():
-        os.environ["SA_TESSERACT"] = str(exe)
+        os.environ["CAHON_TESSERACT"] = str(exe)
         os.environ["TESSDATA_PREFIX"] = str(base / "tesseract" / "tessdata")
 
 
@@ -106,7 +105,7 @@ def start_server(folder: Path, port: int):
         home = Path.home()
         folders = [str(home / n) for n in ("Documents", "Desktop", "Downloads") if (home / n).is_dir()]
     os.environ.setdefault("OTEL_SDK_DISABLED", "true")
-    app = create_app(Config(mode="local", data_dir=folder, folders=folders, updates=True))
+    app = create_app(Config(mode="local", data_dir=folder, folders=folders, updates=True, desktop=True))
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning",
                                            log_config=None))
     thread = threading.Thread(target=server.run, name="web", daemon=True)
@@ -116,6 +115,58 @@ def start_server(folder: Path, port: int):
             break
         time.sleep(0.05)
     return server, thread, app
+
+
+def copy_to_clipboard(text: str) -> None:
+    """Put text on the system clipboard (the window's own clipboard access can be
+    refused by WebView2/WebKit; this always works)."""
+    if sys.platform.startswith("win"):
+        _win_clipboard(text)
+    elif sys.platform == "darwin":
+        import subprocess
+
+        subprocess.run(["pbcopy"], input=text.encode("utf-8"), check=True,
+                       env={**os.environ, "LANG": "en_US.UTF-8"})  # pbcopy reads the locale's encoding
+    else:
+        import shutil
+        import subprocess
+
+        for cmd in (["wl-copy"], ["xclip", "-selection", "clipboard"], ["xsel", "--clipboard", "--input"]):
+            if shutil.which(cmd[0]):
+                subprocess.run(cmd, input=text.encode("utf-8"), check=True)
+                return
+        raise OSError("no clipboard tool (wl-copy, xclip or xsel)")
+
+
+def _win_clipboard(text: str) -> None:
+    import ctypes
+    from ctypes import wintypes
+
+    k32, u32 = ctypes.windll.kernel32, ctypes.windll.user32
+    k32.GlobalAlloc.argtypes, k32.GlobalAlloc.restype = [wintypes.UINT, ctypes.c_size_t], wintypes.HGLOBAL
+    k32.GlobalLock.argtypes, k32.GlobalLock.restype = [wintypes.HGLOBAL], wintypes.LPVOID
+    k32.GlobalUnlock.argtypes = [wintypes.HGLOBAL]
+    k32.GlobalFree.argtypes = [wintypes.HGLOBAL]
+    u32.OpenClipboard.argtypes = [wintypes.HWND]
+    u32.SetClipboardData.argtypes, u32.SetClipboardData.restype = [wintypes.UINT, wintypes.HANDLE], wintypes.HANDLE
+    data = text.encode("utf-16-le") + b"\0\0"
+    for _ in range(20):  # another program may hold the clipboard for a moment
+        if u32.OpenClipboard(None):
+            break
+        time.sleep(0.05)
+    else:
+        raise OSError("the clipboard is busy")
+    try:
+        u32.EmptyClipboard()
+        handle = k32.GlobalAlloc(0x0002, len(data))  # GMEM_MOVEABLE
+        ptr = k32.GlobalLock(handle)
+        ctypes.memmove(ptr, data, len(data))
+        k32.GlobalUnlock(handle)
+        if not u32.SetClipboardData(13, handle):  # CF_UNICODETEXT; the clipboard owns it now
+            k32.GlobalFree(handle)
+            raise OSError("could not set the clipboard")
+    finally:
+        u32.CloseClipboard()
 
 
 def _quit(server) -> None:
@@ -132,7 +183,7 @@ def _quit(server) -> None:
 
 def show_window(url: str) -> bool:
     """Run the app window until it is closed. False if no window could be shown."""
-    if os.environ.get("SA_NO_WINDOW") == "1":  # tests / CI: browser mode
+    if os.environ.get("CAHON_NO_WINDOW") == "1":  # tests / CI: browser mode
         return False
     try:
         import webview
@@ -145,7 +196,9 @@ def show_window(url: str) -> bool:
     except Exception:  # older pywebview
         pass
     try:
-        webview.create_window(APP_NAME, url, width=1280, height=860, min_size=(720, 520))
+        # text_select: pywebview turns text selection off unless asked (it adds
+        # "user-select: none" to the page), so nothing could be selected or copied.
+        webview.create_window(APP_NAME, url, width=1280, height=860, min_size=(720, 520), text_select=True)
         webview.start(private_mode=False)
         return True
     except Exception as exc:  # e.g. Windows without the WebView2 runtime
@@ -179,7 +232,7 @@ def main() -> None:
 
     cleanup_downloads(folder)  # installers of versions already installed
 
-    log.info("Search Anything %s (desktop) at %s, data in %s; Rust readers: %s; OCR: %s",
+    log.info("CAHON %s (desktop) at %s, data in %s; Rust readers: %s; OCR: %s",
              __version__, url, folder, NATIVE, engine().info())
     updater = app.state.updater
     updater.on_quit = lambda: _quit(server)

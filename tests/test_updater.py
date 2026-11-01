@@ -7,8 +7,8 @@ import urllib.request
 import pytest
 from fastapi.testclient import TestClient
 
-from search_anything import __version__, updater
-from search_anything.app import Config, create_app
+from cahon import __version__, updater
+from cahon.app import Config, create_app
 
 
 def release(tag, assets=()):
@@ -31,10 +31,10 @@ def test_versions():
 def test_check_finds_newer_release_for_this_computer(tmp_path, monkeypatch):
     monkeypatch.setattr(updater, "asset_suffix", lambda: ".exe")
     u = updater.Updater(tmp_path, enabled=True, fetch=lambda url: release("v99.0.0", [
-        asset("SearchAnything-99.0.0-macos-arm64.dmg", b"m"), asset("SearchAnything-Setup-99.0.0.exe", b"w")]))
+        asset("CAHON-99.0.0-macos-arm64.dmg", b"m"), asset("CAHON-Setup-99.0.0.exe", b"w")]))
     st = u.check()
     assert st["newer"] and st["latest"] == "99.0.0" and st["current"] == __version__
-    assert u.latest["asset"]["name"] == "SearchAnything-Setup-99.0.0.exe"
+    assert u.latest["asset"]["name"] == "CAHON-Setup-99.0.0.exe"
     same = updater.Updater(tmp_path, enabled=True, fetch=lambda url: release("v" + __version__))
     assert same.check()["newer"] is False
 
@@ -52,7 +52,7 @@ def test_disabled_updater_never_fetches(tmp_path, monkeypatch):
         raise AssertionError("must not contact GitHub")
 
     assert updater.Updater(tmp_path, enabled=False, fetch=boom).check()["enabled"] is False
-    monkeypatch.setenv("SA_UPDATES", "0")
+    monkeypatch.setenv("CAHON_UPDATES", "0")
     assert updater.Updater(tmp_path, enabled=True, fetch=boom).check()["enabled"] is False
 
 
@@ -105,3 +105,19 @@ def test_no_release_yet_is_not_an_error(tmp_path):
 
     st = updater.Updater(tmp_path, enabled=True, fetch=not_found).check()
     assert st["state"] == "idle" and st["newer"] is False and "ยังไม่มีเวอร์ชัน" in st["error"]
+
+
+def test_new_repository_name_first_then_the_old_one(tmp_path):
+    import urllib.error
+
+    asked = []
+
+    def fetch(url):
+        asked.append(url)
+        if "/cahon/" in url:  # not renamed yet
+            raise urllib.error.HTTPError(url, 404, "Not Found", {}, None)
+        return release("v99.0.0")
+
+    st = updater.Updater(tmp_path, enabled=True, fetch=fetch).check()
+    assert st["latest"] == "99.0.0"
+    assert [u.split("/repos/")[1].split("/releases")[0] for u in asked] == ["narathorn09/cahon", "narathorn09/search-anything"]

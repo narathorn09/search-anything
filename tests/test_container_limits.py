@@ -1,7 +1,7 @@
 import threading
 from pathlib import Path
 
-from search_anything.resources import (PROFILES, Brake, ContainerLimits, min_free_ram_mb, ram_limits_mb,
+from cahon.resources import (PROFILES, Brake, ContainerLimits, min_free_ram_mb, ram_limits_mb,
                                        read_container_limits)
 
 GiB = 1024 ** 3

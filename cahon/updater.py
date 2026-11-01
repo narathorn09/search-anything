@@ -13,7 +13,7 @@ desktop.yml). This module:
   replaced (no write access), the disk image is opened for a manual drag.
 
 This is the only part of the app that uses the internet, only in the
-desktop app, and it can be switched off in Settings (or SA_UPDATES=0).
+desktop app, and it can be switched off in Settings (or CAHON_UPDATES=0).
 """
 
 from __future__ import annotations
@@ -38,8 +38,14 @@ from . import __version__
 
 log = logging.getLogger(__name__)
 
-REPO = "narathorn09/search-anything"
-LATEST_URL = f"https://api.github.com/repos/{REPO}/releases/latest"
+# Releases live in narathorn09/cahon. Until the repository is renamed from its
+# first name (search-anything) the releases are there: ask both, new name first.
+REPOS = ("narathorn09/cahon", "narathorn09/search-anything")
+LATEST_URL = f"https://api.github.com/repos/{REPOS[0]}/releases/latest"
+
+
+def latest_urls() -> list[str]:
+    return [f"https://api.github.com/repos/{repo}/releases/latest" for repo in REPOS]
 CHECK_EVERY = 24 * 3600
 TIMEOUT = 15
 _VERSION = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)$")
@@ -66,7 +72,7 @@ def can_install() -> bool:
 
 def _get_json(url: str) -> dict:
     req = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json",
-                                               "User-Agent": f"SearchAnything/{__version__}"})
+                                               "User-Agent": f"CAHON/{__version__}"})
     with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
         return json.loads(r.read())
 
@@ -74,7 +80,7 @@ def _get_json(url: str) -> dict:
 class Updater:
     def __init__(self, data_dir: Path, enabled: bool, fetch=_get_json):
         self.dir = data_dir / "updates"
-        self.enabled = enabled and os.environ.get("SA_UPDATES", "1") != "0"
+        self.enabled = enabled and os.environ.get("CAHON_UPDATES", "1") != "0"
         self.fetch = fetch
         self.settings_file = data_dir / "update-settings.json"
         self.auto = self._load().get("auto", True)
@@ -113,7 +119,14 @@ class Updater:
             return self.status()
         self.state, self.error = "checking", ""
         try:
-            rel = self.fetch(LATEST_URL)
+            rel = None
+            for i, url in enumerate(latest_urls()):
+                try:
+                    rel = self.fetch(url)
+                    break
+                except urllib.error.HTTPError as exc:
+                    if exc.code != 404 or i == len(REPOS) - 1:
+                        raise
             version = parse_version(rel.get("tag_name", ""))
             if version is None:
                 raise ValueError(f"unexpected release tag {rel.get('tag_name')!r}")
@@ -186,7 +199,7 @@ class Updater:
         target = self.dir / asset["name"]
         partial = target.with_suffix(target.suffix + ".part")
         digest = hashlib.sha256()
-        req = urllib.request.Request(asset["url"], headers={"User-Agent": f"SearchAnything/{__version__}"})
+        req = urllib.request.Request(asset["url"], headers={"User-Agent": f"CAHON/{__version__}"})
         with urllib.request.urlopen(req, timeout=60) as r, partial.open("wb") as out:
             total = int(r.headers.get("Content-Length") or asset.get("size") or 0)
             done = 0
@@ -221,7 +234,7 @@ def launch_installer(path: Path) -> None:
 
 
 def current_app_bundle() -> Path | None:
-    """…/Search Anything.app of the running app (sys.executable is in Contents/MacOS)."""
+    """…/CAHON.app of the running app (sys.executable is in Contents/MacOS)."""
     exe = Path(sys.executable).resolve()
     for parent in exe.parents:
         if parent.suffix == ".app":
@@ -234,18 +247,22 @@ def _install_macos(dmg: Path) -> None:
     if app is None or not os.access(app.parent, os.W_OK):
         subprocess.Popen(["open", str(dmg)])  # no write access: let the user drag it in
         return
-    script = Path(tempfile.mkdtemp(prefix="sa-update-")) / "update.sh"
+    script = Path(tempfile.mkdtemp(prefix="cahon-update-")) / "update.sh"
     script.write_text(f"""#!/bin/sh
-# Wait for the app to quit, swap in the new version, reopen it.
+# Wait for the app to quit, swap in the new version, reopen it. The new
+# bundle keeps the name it has in the disk image.
 while kill -0 {os.getpid()} 2>/dev/null; do sleep 0.5; done
 MNT=$(mktemp -d)
 hdiutil attach -nobrowse -readonly -mountpoint "$MNT" {shlex_quote(dmg)} >/dev/null || exit 1
 NEW=$(ls -d "$MNT"/*.app | head -1)
-rm -rf {shlex_quote(app)}.old
-mv {shlex_quote(app)} {shlex_quote(app)}.old && ditto "$NEW" {shlex_quote(app)} || mv {shlex_quote(app)}.old {shlex_quote(app)}
+OLD={shlex_quote(app)}
+TARGET={shlex_quote(app.parent)}/"$(basename "$NEW")"
+rm -rf "$OLD.old"
+if mv "$OLD" "$OLD.old"; then
+  if ditto "$NEW" "$TARGET"; then rm -rf "$OLD.old"; else mv "$OLD.old" "$OLD"; TARGET="$OLD"; fi
+fi
 hdiutil detach "$MNT" >/dev/null
-rm -rf {shlex_quote(app)}.old
-open {shlex_quote(app)}
+open "$TARGET"
 """)
     script.chmod(0o755)
     subprocess.Popen(["/bin/sh", str(script)], start_new_session=True, close_fds=True)

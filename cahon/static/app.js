@@ -110,15 +110,66 @@ function toast(msg) {
   toastTimer = setTimeout(() => t.classList.add("hidden"), 2200);
 }
 
-async function copy(text, label = "คัดลอกแล้ว") {
+const isDesktop = () => !!state.status?.desktop;
+
+async function copyText(text) {
+  // In the desktop app the window's own clipboard access may be refused
+  // (WebView2/WebKit): the app puts it on the system clipboard instead.
+  if (isDesktop()) {
+    try { await api("/api/clipboard", { method: "POST", body: { text } }); return true; } catch { /* fall through */ }
+  }
   try {
     await navigator.clipboard.writeText(text);
+    return true;
   } catch {
-    const ta = el("textarea", {}, text);
-    document.body.append(ta); ta.select(); document.execCommand("copy"); ta.remove();
+    const ta = el("textarea", { style: "position:fixed;opacity:0;user-select:text" }, text);
+    document.body.append(ta); ta.focus(); ta.select();
+    const ok = document.execCommand("copy");
+    ta.remove();
+    return ok;
   }
-  toast(label);
 }
+
+async function copy(text, label = "คัดลอกแล้ว") {
+  toast(await copyText(text) ? label : "คัดลอกไม่ได้ ลองเลือกข้อความแล้วกด Ctrl+C");
+}
+
+// The desktop window has no right-click menu of its own (pywebview turns it
+// off): offer Copy / Select all where it makes sense.
+function selectedText() {
+  const a = document.activeElement;
+  if (a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA") && a.selectionStart !== a.selectionEnd) {
+    return a.value.slice(a.selectionStart, a.selectionEnd);
+  }
+  return String(window.getSelection() || "");
+}
+
+function closeContextMenu() { document.querySelector(".ctx-menu")?.remove(); }
+
+document.addEventListener("contextmenu", (e) => {
+  if (!isDesktop()) return; // a normal browser has its own menu
+  e.preventDefault();
+  closeContextMenu();
+  const text = selectedText();
+  const field = e.target.closest("input, textarea, pre, .vbody, #detail, .results");
+  const items = [];
+  if (text) items.push(["คัดลอก", async () => { await copy(text); }]);
+  if (field) items.push(["เลือกทั้งหมด", () => {
+    if (field.select) { field.focus(); field.select(); return; }
+    const r = document.createRange(); r.selectNodeContents(field);
+    const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+  }]);
+  if (!items.length) return;
+  const menu = el("div", { class: "ctx-menu", role: "menu" }, items.map(([label, run]) =>
+    el("button", { type: "button", class: "menu-item", role: "menuitem", onclick: () => { closeContextMenu(); run(); } }, label)));
+  document.body.append(menu);
+  const w = menu.offsetWidth, h = menu.offsetHeight;
+  menu.style.left = `${Math.min(e.clientX, innerWidth - w - 8)}px`;
+  menu.style.top = `${Math.min(e.clientY, innerHeight - h - 8)}px`;
+});
+document.addEventListener("mousedown", (e) => { if (!e.target.closest(".ctx-menu")) closeContextMenu(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeContextMenu(); }, true);
+window.addEventListener("blur", closeContextMenu);
 
 function fmtSize(n) {
   if (n == null) return "";
@@ -338,9 +389,31 @@ async function loadMore() {
   }
 }
 
-const observer = new IntersectionObserver((entries) => {
-  if (entries.some((e) => e.isIntersecting)) loadMore();
-}, { rootMargin: "900px 0px" }); // start loading well before the end is visible
+/** The element that scrolls the result list: the list itself on wider screens
+    (app shell, the page stays still), the page on phones. */
+function resultsScroller() {
+  const ul = $("#results");
+  return ul && getComputedStyle(ul).overflowY !== "visible" ? ul : null;
+}
+
+let observerRoot;
+let observerImpl = null;
+const observer = {
+  // Start loading well before the end is visible, measured in the scrolling area.
+  observe(el) {
+    const root = resultsScroller();
+    if (!observerImpl || observerRoot !== root) {
+      observerImpl?.disconnect();
+      observerRoot = root;
+      observerImpl = new IntersectionObserver((entries) => {
+        if (entries.some((e) => e.isIntersecting)) loadMore();
+      }, { root, rootMargin: "900px 0px" });
+    }
+    observerImpl.observe(el);
+  },
+  unobserve(el) { if (el) observerImpl?.unobserve(el); },
+  disconnect() { observerImpl?.disconnect(); },
+};
 
 function resultMeta(r) {
   if (r.kind === "file") return [ext(r.title), fmtSize(r.size), fmtShortDate(r.mtime)];
@@ -409,6 +482,7 @@ function renderResults() {
   const ul = $("#results");
   observer.disconnect();
   ul.replaceChildren();
+  ul.scrollTop = 0;
   window.scrollTo({ top: 0 });
   const t = terms();
   updateCount();
@@ -1058,7 +1132,7 @@ function renderTourStep() {
 
 function endTour(finished) {
   $("#tour").classList.add("hidden");
-  try { localStorage.setItem("sa-tour-done", "1"); } catch { /* ignore */ }
+  try { localStorage.setItem("cahon-tour-done", "1"); } catch { /* ignore */ }
   if (finished && tour.steps.length > 1) {
     confetti();
     toast("เก่งมาก! พร้อมใช้งานแล้ว");
@@ -1091,12 +1165,12 @@ $("#guide").addEventListener("click", (e) => { if (e.target === $("#guide")) clo
 $("#welcome-yes").addEventListener("click", () => startTour());
 $("#welcome-no").addEventListener("click", () => {
   $("#welcome").classList.add("hidden");
-  try { localStorage.setItem("sa-tour-done", "1"); } catch { /* ignore */ }
+  try { localStorage.setItem("cahon-tour-done", "1"); } catch { /* ignore */ }
 });
 
 function maybeWelcome() {
   let done = false;
-  try { done = localStorage.getItem("sa-tour-done") === "1"; } catch { /* ignore */ }
+  try { done = localStorage.getItem("cahon-tour-done") === "1"; } catch { /* ignore */ }
   if (!done) setTimeout(() => { if (!tourOpen() && !guideOpen()) $("#welcome").classList.remove("hidden"); }, 1200);
 }
 
@@ -1426,7 +1500,7 @@ function pageReset() {
       pref("คืนค่าหน้าตาเริ่มต้น", "ล้างทุกอย่างในหมวด หน้าตา / การแสดงผล / การใช้งาน กลับเป็นค่าเริ่มต้น",
         btn("คืนค่าเริ่มต้น", () => applyPreset(DEFAULT_PREFS, "คืนค่าเริ่มต้นแล้ว"), "danger sm")),
       pref("ชวนดูทัวร์อีกครั้ง", "แสดงคำชวนทัวร์ครั้งถัดไปที่เปิดแอป", btn("รีเซ็ตทัวร์", () => {
-        try { localStorage.removeItem("sa-tour-done"); } catch { /* ignore */ }
+        try { localStorage.removeItem("cahon-tour-done"); } catch { /* ignore */ }
         toast("จะชวนดูทัวร์อีกครั้งเมื่อเปิดแอปครั้งถัดไป");
       }, "secondary sm")),
     ], "การตั้งค่าหน้าตาบันทึกไว้ใน browser นี้ ไม่กระทบโฟลเดอร์ ไฟล์ โน้ต หรือรหัสผ่าน"),
@@ -1462,7 +1536,7 @@ function pollUpdate() {
 function pageAbout() {
   const s = state.status;
   const u = s.update;
-  const rows = [pref("เวอร์ชันที่ใช้อยู่", "Search Anything", el("strong", {}, s.version || "—"))];
+  const rows = [pref("เวอร์ชันที่ใช้อยู่", "CAHON (คาหน) · ค้นหาทุกอย่างในช่องเดียว", el("strong", {}, s.version || "—"))];
   if (!u) {
     rows.push(pref("อัปเดต", s.in_container
       ? "รันใน Docker: ดึงโค้ดใหม่ (git pull) แล้วรันสคริปต์ start อีกครั้ง"

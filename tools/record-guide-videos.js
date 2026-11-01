@@ -2,7 +2,7 @@
 //
 //   1. Start the app with some sample data (see tools/README.md).
 //   2. node tools/record-guide-videos.js
-//   3. Videos + posters are written to search_anything/static/guide/
+//   3. Videos + posters are written to cahon/static/guide/
 //
 // Needs Node, Playwright (npm i playwright) and ffmpeg (for MP4/H.264).
 // Each scenario runs in its own browser context so it gets its own video.
@@ -16,7 +16,7 @@ const path = require("path");
 
 const BASE = process.env.BASE_URL || "http://localhost:8765";
 const SCAN_BASE = process.env.SCAN_URL || BASE; // a server with many files, for the scan video
-const OUT = process.env.OUT_DIR || path.join(__dirname, "..", "search_anything", "static", "guide");
+const OUT = process.env.OUT_DIR || path.join(__dirname, "..", "cahon", "static", "guide");
 const ONLY = process.argv.slice(2);
 const SIZE = { width: 1280, height: 800 };
 
@@ -223,7 +223,7 @@ const SCENARIOS = {
   for (const [key, run] of Object.entries(SCENARIOS)) {
     if (ONLY.length && !ONLY.includes(key)) continue;
     const ctx = await browser.newContext({ viewport: SIZE, recordVideo: { dir: tmp, size: SIZE }, deviceScaleFactor: 1 });
-    await ctx.addInitScript(() => { localStorage.setItem("sa-tour-done", "1"); });
+    await ctx.addInitScript(() => { localStorage.setItem("cahon-tour-done", "1"); });
     const page = await ctx.newPage();
     await page.goto(key === "scan" ? SCAN_BASE : BASE);
     await page.waitForTimeout(1200);

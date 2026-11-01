@@ -3,9 +3,9 @@ requires = ["maturin>=1.5,<2"]
 build-backend = "maturin"
 
 [project]
-name = "sa-native"
+name = "cahon-native"
 version = "0.1.0"
-description = "Fast text extraction for Search Anything (xlsx, docx, pptx)"
+description = "Fast text extraction for CAHON (xlsx, docx, pptx)"
 requires-python = ">=3.10"
 
 [tool.maturin]

@@ -12,10 +12,10 @@ from pathlib import Path
 
 import pytest
 
-from search_anything import legacy
-from search_anything.db import Database
-from search_anything.extractors import MAX_TEXT_CHARS, extract_text
-from search_anything.indexer import Indexer, ScanSettings
+from cahon import legacy
+from cahon.db import Database
+from cahon.extractors import MAX_TEXT_CHARS, extract_text
+from cahon.indexer import Indexer, ScanSettings
 
 FIX = Path(__file__).parent / "fixtures"
 
@@ -62,9 +62,9 @@ def test_not_a_legacy_file(tmp_path):
 
 @pytest.mark.parametrize("name", ["report.doc", "budget.xls", "plan.ppt"])
 def test_rust_reader_gives_the_same_text(name):
-    native = pytest.importorskip("sa_native")
+    native = pytest.importorskip("cahon_native")
     if not hasattr(native, "doc_text"):
-        pytest.skip("sa_native built before .doc/.xls/.ppt support")
+        pytest.skip("cahon_native built before .doc/.xls/.ppt support")
     fn = {"doc": (legacy.doc_text, native.doc_text), "xls": (legacy.xls_text, native.xls_text),
           "ppt": (legacy.ppt_text, native.ppt_text)}[name.rsplit(".", 1)[1]]
     for cap in (MAX_TEXT_CHARS, 50):

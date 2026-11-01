@@ -1,28 +1,28 @@
-; Inno Setup script: Search Anything installer for Windows.
+; Inno Setup script: CAHON installer for Windows.
 ; Installs for the current user (no admin rights needed), adds Start menu and
 ; optional desktop shortcuts, and an uninstaller. User data in
-; %LOCALAPPDATA%\SearchAnything is kept on uninstall.
-;   iscc /DAppVersion=1.0.0 /DSourceDir=..\..\dist\Search Anything packaging\windows\installer.iss
+; %LOCALAPPDATA%\CAHON is kept on uninstall.
+;   iscc /DAppVersion=1.0.0 /DSourceDir=..\..\dist\CAHON packaging\windows\installer.iss
 
 #ifndef AppVersion
   #define AppVersion "0.0.0"
 #endif
 #ifndef SourceDir
-  #define SourceDir "..\..\dist\Search Anything"
+  #define SourceDir "..\..\dist\CAHON"
 #endif
 
 [Setup]
-AppId={{6E2A6B57-5B7B-4C61-9A3E-3E1E7C0B5A11}
-AppName=Search Anything
+AppId={{C4A0F2D1-7B3E-4E58-9C61-2F8D5A1E6B37}
+AppName=CAHON
 AppVersion={#AppVersion}
-AppPublisher=Search Anything
-DefaultDirName={localappdata}\Programs\Search Anything
-DefaultGroupName=Search Anything
+AppPublisher=CAHON
+DefaultDirName={localappdata}\Programs\CAHON
+DefaultGroupName=CAHON
 PrivilegesRequired=lowest
 OutputDir=..\..\dist
-OutputBaseFilename=SearchAnything-Setup-{#AppVersion}
+OutputBaseFilename=CAHON-Setup-{#AppVersion}
 SetupIconFile=..\build\icons\icon.ico
-UninstallDisplayIcon={app}\Search Anything.exe
+UninstallDisplayIcon={app}\CAHON.exe
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
@@ -40,11 +40,11 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\Search Anything"; Filename: "{app}\Search Anything.exe"
-Name: "{group}\Uninstall Search Anything"; Filename: "{uninstallexe}"
-Name: "{userdesktop}\Search Anything"; Filename: "{app}\Search Anything.exe"; Tasks: desktopicon
+Name: "{group}\CAHON"; Filename: "{app}\CAHON.exe"
+Name: "{group}\Uninstall CAHON"; Filename: "{uninstallexe}"
+Name: "{userdesktop}\CAHON"; Filename: "{app}\CAHON.exe"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\Search Anything.exe"; Description: "{cm:LaunchProgram,Search Anything}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\CAHON.exe"; Description: "{cm:LaunchProgram,CAHON}"; Flags: nowait postinstall skipifsilent
 ; In-app updates run this installer silently: reopen the app afterwards.
-Filename: "{app}\Search Anything.exe"; Flags: nowait; Check: WizardSilent
+Filename: "{app}\CAHON.exe"; Flags: nowait; Check: WizardSilent
