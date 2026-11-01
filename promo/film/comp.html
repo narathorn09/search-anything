@@ -1,321 +1,421 @@
 <!DOCTYPE html>
-<!-- CAHON promo, made with onetake (github.com/feitangyuan/onetake, PolyForm Noncommercial 1.0.0; motion.js is its
-     library, copied beside this file). CONCEPT: one search box, one take. The box is the spine: a grey system search
-     lost in a heap of files finds nothing; it becomes CAHON's box in place; each word typed opens straight into what
-     it found; the camera never cuts; at the end only the box is left and its caret writes the name. -->
+<!-- CAHON promo v2, made with onetake (github.com/feitangyuan/onetake, PolyForm Noncommercial 1.0.0; motion.js is its
+     library, fetched by ../prepare-assets.sh). CONCEPT: one search box, one take, told in pictures. The mascot lives the
+     pain (every file it checks is wrong, a scan it can't read, a key/note/link that slip away, a search that spins), jumps
+     onto the system search bar and it becomes CAHON's box; then, in the real app, every answer is shown, not written: a line
+     from the word to the file, a lens on the number inside, a beam that reads the scan, file-type badges, a calendar that
+     flips, a folder that flies in. A host mascot in the corner reacts to each. The camera never cuts. -->
 <html lang="th">
 <head>
 <meta charset="utf-8">
-<title>CAHON · one take</title>
+<title>CAHON · one take, in pictures</title>
 <style>
 @font-face{font-family:GS;src:url(../public/google-sans-latin.woff2) format('woff2');font-weight:100 900}
 @font-face{font-family:GS;src:url(../public/google-sans-latin-ext.woff2) format('woff2');font-weight:100 900}
 @font-face{font-family:GS;src:url(../public/google-sans-thai.woff2) format('woff2');font-weight:100 900}
-:root{--paper:#f3f1ec;--ink:#262626;--grey:#8a8a85;--mint:#9fe5c7;--green:#1f7a55;--red:#d64545;--card:#fff;--line:#e6e4de}
+:root{--paper:#f3f1ec;--ink:#262626;--grey:#8a8a85;--mint:#3fcf8e;--green:#1f7a55;--red:#e5484d;--line:#e6e4de}
 html,body{margin:0;width:1920px;height:1080px;overflow:hidden;background:var(--paper)}
 body{font-family:GS,sans-serif;color:var(--ink)}
 #ground{position:absolute;inset:0}
 #world{position:absolute;left:0;top:0;width:1920px;height:1080px;transform-origin:0 0}
-.abs{position:absolute;left:0;top:0;will-change:transform,opacity}
-/* the app: the real recording, a window on the desk */
 #app{position:absolute;left:0;top:0;width:1920px;height:1080px;border-radius:22px;overflow:hidden;background:#fff;
   box-shadow:0 60px 140px -40px rgba(40,35,20,.35),0 0 0 1px rgba(0,0,0,.06);transform-origin:0 0}
 #app img{width:1920px;height:1080px;display:block}
-/* cold open: the heap and the system search */
-.chip{position:absolute;padding:12px 18px;border-radius:12px;background:#fff;border:1px solid var(--line);font-size:22px;color:#7a7a75;
-  white-space:nowrap;box-shadow:0 10px 24px -14px rgba(0,0,0,.25);display:flex;gap:10px;align-items:center}
+.chip{position:absolute;left:0;top:0;padding:12px 18px;border-radius:12px;background:#fff;border:1px solid var(--line);font-size:22px;color:#7a7a75;
+  white-space:nowrap;box-shadow:0 10px 24px -14px rgba(0,0,0,.25);display:flex;gap:10px;align-items:center;transform-origin:50% 50%}
 .chip svg{width:20px;height:20px}
+.x,.ok{position:absolute;left:0;top:0;width:64px;height:64px;border-radius:50%;display:grid;place-items:center;transform-origin:50% 50%}
+.x{background:var(--red);box-shadow:0 10px 24px -10px rgba(229,72,77,.7)}
+.ok{background:var(--mint);box-shadow:0 10px 24px -10px rgba(63,207,142,.8)}
+.x svg,.ok svg{width:34px;height:34px}
 #sys{position:absolute;border-radius:14px;background:#e9e8e4;border:1px solid #d6d4cd;display:flex;align-items:center;gap:14px;
-  padding:0 22px;box-sizing:border-box;font-size:30px;color:#3b3b38;overflow:hidden}
-#sys .spin{width:26px;height:26px;border-radius:50%;border:3.5px solid #cfcdc6;border-top-color:#8a8a85;flex:none}
+  padding:0 22px;box-sizing:border-box;font-size:30px;color:#3b3b38;overflow:hidden;transform-origin:50% 50%}
+#sys .spin{width:28px;height:28px;border-radius:50%;border:4px solid #cfcdc6;border-top-color:#6d6d68;flex:none}
 #sys .q{flex:1;white-space:nowrap}
-#sys .q i{display:inline-block;width:2.5px;height:32px;background:#3b3b38;vertical-align:-6px;margin-left:2px}
-#none{position:absolute;font-size:30px;font-weight:600;color:var(--red);white-space:nowrap}
-/* the end: the box alone */
+.paper{position:absolute;left:0;top:0;width:200px;height:260px;border-radius:10px;background:#fff;border:1px solid var(--line);
+  box-shadow:0 24px 50px -20px rgba(0,0,0,.35);overflow:hidden;transform-origin:50% 50%}
+.paper .tag{position:absolute;left:14px;top:14px;padding:3px 10px;border-radius:6px;background:#fde8e8;color:var(--red);font-size:18px;font-weight:700}
+.paper svg.lines{position:absolute;left:18px;top:56px;width:164px;height:180px}
+.paper .beam{position:absolute;left:0;right:0;height:26px;background:linear-gradient(to bottom,rgba(63,207,142,0),rgba(63,207,142,.55),rgba(63,207,142,0));
+  border-bottom:3px solid var(--mint)}
+.token{position:absolute;left:0;top:0;width:96px;height:96px;border-radius:26px;display:grid;place-items:center;box-shadow:0 18px 36px -18px rgba(0,0,0,.4);transform-origin:50% 50%}
+.token svg{width:50px;height:50px}
+.mascot{position:absolute;left:0;top:0;transform-origin:50% 100%}
+#lens{position:absolute;left:0;top:0;width:190px;height:190px;border-radius:50%;overflow:hidden;border:9px solid var(--ink);box-sizing:border-box;
+  background:#fff;box-shadow:0 20px 40px -14px rgba(0,0,0,.45);transform-origin:50% 50%}
+#lens img{position:absolute;left:0;top:0;transform-origin:0 0;max-width:none}
+#lensHandle{position:absolute;left:0;top:0;width:90px;height:22px;border-radius:11px;background:var(--ink);transform-origin:0 50%}
+.badge{position:absolute;left:0;top:0;width:96px;height:112px;border-radius:18px;background:#fff;border:1px solid var(--line);box-shadow:0 18px 36px -16px rgba(0,0,0,.35);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;transform-origin:50% 100%}
+.badge b{font-size:22px;color:#fff;padding:4px 10px;border-radius:7px;font-weight:700;letter-spacing:.04em}
+.badge svg{width:40px;height:40px}
+#cal{position:absolute;left:0;top:0;width:120px;height:128px;border-radius:20px;background:#fff;border:1px solid var(--line);overflow:hidden;
+  box-shadow:0 18px 36px -16px rgba(0,0,0,.35);transform-origin:50% 100%}
+#cal .top{height:34px;background:var(--red)}
+#cal .num{position:absolute;left:0;right:0;top:40px;text-align:center;font-size:58px;font-weight:700;color:var(--ink);transform-origin:50% 0}
+#folder{position:absolute;left:0;top:0;width:120px;height:96px;transform-origin:50% 100%}
+#over{position:absolute;left:0;top:0;width:1920px;height:1080px;overflow:visible;pointer-events:none}
 #box{position:absolute;border-radius:22px;background:#fff;border:2px solid #e2e0da;box-sizing:border-box;display:flex;align-items:center;
   box-shadow:0 30px 70px -30px rgba(40,35,20,.35);overflow:hidden}
-#box .lens{flex:none}
 #box .w{font-weight:600;color:var(--ink);white-space:nowrap;letter-spacing:.04em}
 #box .w span{display:inline-block;transform-origin:50% 90%}
 #box .cur{display:inline-block;background:var(--ink);vertical-align:middle}
-#mascot{position:absolute;left:0;top:0;width:200px;height:200px;transform-origin:50% 100%}
 #tag{position:absolute;left:0;right:0;text-align:center;font-size:52px;color:var(--ink);white-space:nowrap}
 #tag b{color:var(--green);font-weight:600}
 #get{position:absolute;left:0;right:0;text-align:center;font-size:28px;color:var(--grey);white-space:nowrap}
-/* screen space: captions and hits */
-#cap{position:absolute;left:0;right:0;bottom:66px;display:flex;justify-content:center;gap:22px;pointer-events:none}
-#cap .w{padding:14px 30px;border-radius:999px;background:rgba(255,255,255,.94);box-shadow:0 18px 40px -18px rgba(0,0,0,.35);
-  font-size:46px;font-weight:600;white-space:nowrap;will-change:transform,opacity}
-#cap .w.pain{color:var(--red)}
-#cap .w.fix{color:var(--green)}
-#stac{position:absolute;left:50%;top:0;font-size:84px;font-weight:700;color:var(--ink);white-space:nowrap;padding:6px 34px;border-radius:28px;transform-origin:50% 50%}
-#stac.on{background:rgba(255,255,255,.92);box-shadow:0 20px 50px -24px rgba(0,0,0,.4)}
-#hud{position:absolute;right:14px;bottom:10px;font:13px monospace;color:#c00;display:none}
+#host{position:absolute;left:40px;top:830px;width:210px;height:210px}
 </style>
 </head>
 <body>
 <canvas id="ground" width="1920" height="1080"></canvas>
 <div id="world">
   <div id="desk"></div>
+  <div class="paper" id="scanCard"><div class="tag">PDF</div><svg class="lines" id="squig" viewBox="0 0 164 180"></svg></div>
+  <div id="tokens"></div>
+  <div id="sys"><div class="spin" id="spin"></div><div class="q"><span id="sysq"></span></div></div>
   <div id="app"><img id="frame" alt=""></div>
-  <div id="sys"><div class="spin" id="spin"></div><div class="q"><span id="sysq"></span><i id="syscaret"></i></div></div>
-  <div id="none">ไม่พบรายการ</div>
-  <div id="box"><svg class="lens" id="lens" viewBox="0 0 24 24" fill="none" stroke="#8a8a85" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></svg><div class="w" id="word"></div></div>
+  <svg id="over" viewBox="0 0 1920 1080"></svg>
+  <div class="paper" id="ocrCard"><div class="tag">PDF</div><svg class="lines" id="squig2" viewBox="0 0 164 180"></svg><div class="beam" id="beam"></div></div>
+  <div id="lens"><img id="lensImg" alt=""></div><div id="lensHandle"></div>
+  <div id="badges"></div>
+  <div id="cal"><div class="top"></div><div class="num" id="calNum">1</div></div>
+  <svg id="folder" viewBox="0 0 120 96"><path d="M6 18a10 10 0 0 1 10-10h30l10 12h48a10 10 0 0 1 10 10v50a10 10 0 0 1-10 10H16A10 10 0 0 1 6 80z" fill="#f6c453" stroke="#262626" stroke-width="4" stroke-linejoin="round"/><path d="M6 34h108" stroke="#262626" stroke-width="4"/></svg>
+  <div id="box"><svg id="lensIcon" viewBox="0 0 24 24" fill="none" stroke="#8a8a85" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></svg><div class="w" id="word"></div></div>
   <div id="tag">ค้นหาทุกอย่าง <b>ในช่องเดียว</b></div>
   <div id="get">Windows · Mac &nbsp;·&nbsp; github.com/narathorn09/cahon</div>
-  <div id="mascot"></div>
+  <div class="mascot" id="star"></div>
 </div>
-<div id="cap"></div>
-<div id="stac"></div>
-<div id="hud"></div>
+<div class="mascot" id="host"></div>
+<div class="ok" id="hostOk"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg></div>
+<div id="hud" style="position:absolute;right:14px;bottom:10px;font:13px monospace;color:#c00;display:none"></div>
 <script src="motion.js"></script>
+<script src="timeline.js"></script>
 <script>
-// Every value below is a pure function of t (seconds). Contract: __seek(t) → Promise, __ready, __meta, __track, __motion.
-const {clamp, lerp, sstep, ssstep, seg, ease, spring} = OM;
-const FPS = 30, DUR = 31.6, S = 0.75;                       // S: recording px (2560×1440) → world px (1920×1080)
-window.__meta = { dur: DUR, fps: FPS, w: 1920, h: 1080, inFrame: { box: [29.2, DUR, 'whole'] } };
+// Every value is a pure function of t. Contract: __seek(t) → Promise, __ready, __meta, __track, __motion, __events.
+const {clamp, lerp, sstep, seg, ease} = OM;
+const cubicIn = u => u * u * u;
 const $ = id => document.getElementById(id);
+const FPS = 30, S = 0.75;                                       // recording px (2560×1440) → world px
+const M = Object.fromEntries(TL.marks.map(m => [m.name, m]));
+const tR = n => M[n].t;                                         // recording time of a mark
+const wR = n => { const r = M[n].rect; return { x: r.x * S, y: r.y * S, w: r.w * S, h: r.h * S }; };
+const ctr = r => ({ x: r.x + r.w / 2, y: r.y + r.h / 2 });
 
-// ───────────────────────── the take: film time → recording time (speed ramps, never a cut) ─────────────────────────
-// Knots [film, recording]; recording marks are in src/timeline.json.
-const FOOT = [[0,1.0],[3.1,1.0],[3.6,1.7],[4.3,3.35],[5.4,4.55],[6.0,5.3],[6.6,6.2],[7.2,7.3],[7.4,8.0],[8.0,8.85],
-  [8.8,9.75],[9.3,10.45],[10.4,11.5],[10.7,12.1],[11.4,13.0],[12.1,14.0],[12.7,15.2],[13.2,15.9],[13.5,16.4],[14.9,18.9],
-  [15.6,19.6],[16.7,20.9],[17.0,22.0],[17.9,23.6],[18.3,24.3],[18.8,25.3],[19.4,26.4],[20.0,27.5],[20.8,28.3],[21.3,28.6],
-  [22.0,31.0],[22.8,32.4],[23.5,33.4],[24.3,34.9],[25.8,37.2],[26.5,38.7],[27.6,40.2]];
+// ───────── the take: [recording from, recording to, film seconds, name] — speed ramps and holds, never a cut ─────────
+const COLD = 6.6;
+const SEGS = [
+  [1.0, 1.0, COLD, 'cold'], [1.0, 1.0, 1.3, 'enter'],
+  [1.0, tR('box'), 1.1, 's1'], [tR('box'), tR('typed1'), 2.1, 'type1'], [tR('typed1'), tR('row1'), 0.5, 'found1'],
+  [tR('row1'), tR('row1') + 0.5, 1.8, 'pay1'], [tR('row1') + 0.5, tR('detail1'), 1.3, 'open1'], [tR('detail1'), tR('detail1') + 0.6, 1.0, 'hold1'],
+  [tR('detail1') + 0.6, tR('box2'), 0.5, 's2'], [tR('box2'), tR('hl2'), 2.2, 'type2'], [tR('hl2'), tR('hl2') + 0.6, 2.6, 'pay2'],
+  [tR('hl2') + 0.6, tR('box3'), 0.5, 's3'], [tR('box3'), tR('row3'), 2.2, 'type3'], [tR('row3'), tR('detail3'), 1.3, 'open3'],
+  [tR('detail3'), tR('ocrRun'), 0.9, 'ocrClick'], [tR('ocrRun'), tR('ocrDone'), 2.4, 'reading'], [tR('ocrDone'), tR('ocrText'), 1.2, 'read'],
+  [tR('ocrText'), tR('ocrText') + 0.8, 2.0, 'pay3'],
+  [tR('ocrText') + 0.8, tR('box4'), 0.4, 's4'], [tR('box4'), tR('chips'), 1.9, 'type4'], [tR('chips'), tR('excelOn'), 1.7, 'excel'],
+  [tR('excelOn'), tR('excelOn'), 0.5, 'hold4'], [tR('dateBtn'), tR('d30'), 1.3, 'date'], [tR('d30'), tR('narrowed'), 1.5, 'd30'],
+  [tR('narrowed'), tR('narrowed') + 0.5, 1.1, 'pay4'],
+  [tR('narrowed') + 0.5, tR('panel'), 1.6, 's5'], [tR('panel'), tR('picker'), 1.4, 'add'], [tR('picker'), tR('choose'), 1.7, 'pick'],
+  [tR('choose'), tR('scanning'), 0.9, 'choose'], [tR('scanning'), tR('scanned'), 2.4, 'scanning'], [tR('scanned'), tR('scanned') + 0.8, 1.7, 'pay5'],
+  [tR('scanned') + 0.8, tR('scanned') + 0.8, 5.6, 'end'],
+];
+const T = {}; const FOOT = []; { let t = 0; for (const [a, b, d, n] of SEGS) { T[n] = t; FOOT.push([t, a], [t + d - 1e-4, b]); t += d; } T.done = t; }
+const DUR = +T.done.toFixed(2);
+window.__meta = { dur: DUR, fps: FPS, w: 1920, h: 1080, inFrame: { box: [T.end + 1.9, DUR, 'whole'] } };
 function footAt(t) {
   if (t <= FOOT[0][0]) return FOOT[0][1];
-  for (let i = 0; i < FOOT.length - 1; i++) { const [a, fa] = FOOT[i], [b, fb] = FOOT[i + 1]; if (t <= b) return lerp(fa, fb, (t - a) / (b - a)); }
+  for (let i = 0; i < FOOT.length - 1; i++) { const [a, fa] = FOOT[i], [b, fb] = FOOT[i + 1]; if (t <= b) return b > a ? lerp(fa, fb, (t - a) / (b - a)) : fb; }
   return FOOT[FOOT.length - 1][1];
 }
-const NFR = 1236;
+const NFR = 1446;
+function filmOf(rec) { for (let i = 0; i < FOOT.length - 1; i += 2) { const [a, fa] = FOOT[i], [b, fb] = FOOT[i + 1]; if (rec >= fa && rec <= fb && fb > fa) return lerp(a, b, (rec - fa) / (fb - fa)); } return 0; }
+// when the hand presses, in film time (the recorder moves ~0.65 s before each click)
+const CLICK = { box1: filmOf(tR('box') + 0.65), box2: filmOf(tR('box2') + 0.65), box3: filmOf(tR('box3') + 0.65), box4: filmOf(tR('box4') + 0.65),
+  ocr: filmOf(tR('ocrRun') - 0.2), excel: filmOf(tR('excel') + 0.65), date: filmOf(tR('dateBtn') + 0.65), d30: filmOf(tR('d30') + 0.65),
+  add: filmOf(tR('addBtn') + 0.65), dir: filmOf(tR('dir') + 0.65), choose: filmOf(tR('choose') + 0.65) };
 
-// ───────────────────────── where things are (world px, from the recording's DOM) ─────────────────────────
-const R = (x, y, w, h) => ({ x: x * S, y: y * S, w: w * S, h: h * S });
-const BOX = R(543, 126, 1447, 87);                 // CAHON's search box
-const PANEL_MASCOT = { x: 543 * S + 34, y: 330 * S + 30 };   // the mascot in the folder panel
-const END_BOX = { x: 960 - 560, y: 470, w: 1120, h: 132 };    // the box alone, at the end
-
-// ───────────────────────── beats (seconds) ─────────────────────────
-const TYPE0 = 0.35, CPS = 11, SPIN0 = 1.05, NONE = 1.85;              // the system search tries, and fails
-const HITS = [[2.0, 'ชื่อไฟล์?'], [2.3, 'PDF สแกน?'], [2.6, 'รหัสผ่าน?']], HITS_END = 2.88;
-const ENTER = 3.1;                                                      // the box becomes CAHON's; music
-const APP_OUT = 27.4, BOX_SOLO = 28.0, MASCOT_HOP = [27.9, 28.6], WRITE = 29.0, TAG = 30.0, GET = 30.35;
-const CAPS = [ // [t0, t1, first (the pain), t-second, second (the answer)]
-  [3.5, 6.1, 'พิมพ์คำเดียว', 4.9, 'เจอเลย', false],
-  [7.6, 10.5, 'จำได้แค่ตัวเลข?', 9.3, 'เจอถึงข้างในไฟล์', true],
-  [11.0, 16.8, 'ไฟล์สแกนค้นไม่ได้?', 15.0, 'น้องอ่านให้ด้วย OCR', true],
-  [22.0, 27.0, 'เพิ่มโฟลเดอร์', 25.0, 'น้องสแกนให้เอง', false],
-];
-const STAC = [[18.25, 'ประเภทไฟล์'], [19.35, 'ช่วงเวลา'], [20.05, 'เจอแล้ว']];
-
-// ───────────────────────── camera: keyed, chasing the hand ─────────────────────────
+// ───────── places (world px) ─────────
+const BOX = wR('box'), ROW1 = wR('row1'), HL2 = wR('hl2'), OCRROW = wR('ocrRun'), OCRTXT = wR('ocrText'), CHIPS = wR('chips'), EXCEL = wR('excel'),
+  DATEB = wR('dateBtn'), LIST = wR('narrowed'), DIR = wR('dir'), NEWF = wR('newFolder');
 const bx = BOX.x + BOX.w / 2, by = BOX.y + BOX.h / 2;
+const END_BOX = { x: 960 - 560, y: 470, w: 1120, h: 132 };
+
+// ───────── camera ─────────
 const C = ease;
 const KEYS = [
-  { t: 0, x: bx, y: by + 30, zoom: 1.52 },
-  { t: 1.85, x: bx, y: by + 34, zoom: 1.46, curve: C.sineInOut },
-  { t: ENTER, x: bx, y: by + 34, zoom: 1.42 },
-  { t: 4.05, x: 960, y: 540, zoom: 0.94, curve: C.cubicInOut },          // ENTER: pull out, the app around the box
-  { t: 4.45, x: 950, y: 150, zoom: 1.55, curve: C.expoInOut },           // snap to the box as the hand clicks it
-  { t: 5.5, x: 900, y: 215, zoom: 1.5, curve: C.sineInOut },
-  { t: 6.25, x: 800, y: 360, zoom: 1.6, curve: C.sineInOut },            // the result
-  { t: 7.15, x: 1340, y: 420, zoom: 1.3, curve: C.cubicInOut },          // the file opens on the right
-  { t: 7.6, x: 1340, y: 420, zoom: 1.3 },
-  { t: 8.1, x: 950, y: 150, zoom: 1.75, curve: C.expoInOut },            // whip back to the box
-  { t: 9.05, x: 950, y: 150, zoom: 1.75 },
-  { t: 9.55, x: 700, y: 386, zoom: 2.15, curve: C.expoInOut },           // dive onto the highlight inside the file
-  { t: 10.55, x: 700, y: 386, zoom: 2.15 },                               // dead still
-  { t: 11.05, x: 950, y: 150, zoom: 1.6, curve: C.expoInOut },
-  { t: 12.3, x: 930, y: 250, zoom: 1.42, curve: C.sineInOut },
-  { t: 13.25, x: 1515, y: 474, zoom: 1.95, curve: C.cubicInOut },        // the OCR row: the mascot at work
-  { t: 14.9, x: 1515, y: 478, zoom: 2.05, curve: C.linear },
-  { t: 15.9, x: 1515, y: 610, zoom: 1.5, curve: C.cubicInOut },          // the scanned text appears
-  { t: 16.85, x: 1515, y: 610, zoom: 1.5 },
-  { t: 17.35, x: 950, y: 150, zoom: 1.7, curve: C.expoInOut },           // burst: box → chips → dates → results
-  { t: 18.25, x: 800, y: 268, zoom: 1.95, curve: C.expoInOut },
-  { t: 19.35, x: 960, y: 300, zoom: 1.8, curve: C.expoInOut },
-  { t: 20.25, x: 800, y: 560, zoom: 1.15, curve: C.expoInOut },
-  { t: 21.3, x: 800, y: 560, zoom: 1.15 },                                // rest
-  { t: 22.1, x: 800, y: 330, zoom: 1.6, curve: C.cubicInOut },           // the folder panel
-  { t: 23.55, x: 960, y: 540, zoom: 1.2, curve: C.cubicInOut },          // the folder window
-  { t: 24.35, x: 960, y: 540, zoom: 1.2 },
-  { t: 25.0, x: 660, y: 318, zoom: 1.95, curve: C.cubicInOut },          // the mascot scans the new folder
-  { t: 26.6, x: 660, y: 318, zoom: 2.0, curve: C.linear },
-  { t: 27.7, x: 960, y: 560, zoom: 0.66, curve: C.cubicInOut },          // pull back: the app is a window on the desk
-  { t: 28.6, x: 960, y: 560, zoom: 0.8, curve: C.sineInOut },
-  { t: 29.6, x: 960, y: 560, zoom: 1.0, curve: C.cubicInOut },           // the box alone fills the frame
+  { t: 0, x: 960, y: 470, zoom: 1.12 },
+  { t: 2.6, x: 960, y: 470, zoom: 1.16, curve: C.sineInOut },
+  { t: 3.0, x: 960, y: 500, zoom: 1.25, curve: C.cubicInOut },                 // the scan it can't read
+  { t: 4.3, x: 960, y: 500, zoom: 1.28, curve: C.linear },
+  { t: 4.7, x: 960, y: 480, zoom: 1.0, curve: C.cubicInOut },                  // the things that slip away
+  { t: 5.6, x: bx, y: by + 40, zoom: 1.45, curve: C.cubicInOut },              // the spinning bar
+  { t: T.enter, x: bx, y: by + 40, zoom: 1.5, curve: C.linear },
+  { t: T.enter + 1.0, x: 960, y: 540, zoom: 0.94, curve: C.cubicInOut },      // ENTER: the app around the box
+  { t: CLICK.box1 + 0.05, x: 950, y: 170, zoom: 1.5, curve: C.expoInOut },
+  { t: T.found1, x: 860, y: 230, zoom: 1.45, curve: C.sineInOut },
+  { t: T.pay1 + 0.3, x: 800, y: 290, zoom: 1.5, curve: C.cubicInOut },        // word → file
+  { t: T.open1, x: 800, y: 290, zoom: 1.5 },
+  { t: T.hold1, x: 1300, y: 430, zoom: 1.22, curve: C.cubicInOut },
+  { t: CLICK.box2, x: 950, y: 160, zoom: 1.6, curve: C.expoInOut },
+  { t: T.pay2 - 0.1, x: 950, y: 200, zoom: 1.55, curve: C.sineInOut },
+  { t: T.pay2 + 0.5, x: ctr(HL2).x, y: ctr(HL2).y - 30, zoom: 2.0, curve: C.cubicInOut }, // the lens on the number
+  { t: T.s3, x: ctr(HL2).x, y: ctr(HL2).y - 30, zoom: 2.02, curve: C.linear },
+  { t: CLICK.box3, x: 950, y: 160, zoom: 1.55, curve: C.expoInOut },
+  { t: T.open3, x: 900, y: 260, zoom: 1.4, curve: C.sineInOut },
+  { t: T.ocrClick + 0.2, x: 1515, y: 420, zoom: 1.55, curve: C.cubicInOut },   // the OCR row, the paper above it
+  { t: T.read, x: 1515, y: 410, zoom: 1.6, curve: C.linear },
+  { t: T.pay3, x: 1515, y: 600, zoom: 1.45, curve: C.cubicInOut },             // the text it read
+  { t: T.s4, x: 1515, y: 600, zoom: 1.47, curve: C.linear },
+  { t: CLICK.box4, x: 950, y: 170, zoom: 1.55, curve: C.expoInOut },
+  { t: T.excel, x: 800, y: 210, zoom: 1.65, curve: C.cubicInOut },             // badges over the chips
+  { t: T.hold4, x: 800, y: 300, zoom: 1.35, curve: C.cubicInOut },
+  { t: T.date + 0.2, x: 950, y: 250, zoom: 1.6, curve: C.cubicInOut },         // the calendar
+  { t: T.pay4, x: 800, y: 520, zoom: 1.1, curve: C.cubicInOut },
+  { t: T.s5, x: 800, y: 520, zoom: 1.1 },
+  { t: CLICK.add, x: 800, y: 320, zoom: 1.55, curve: C.cubicInOut },
+  { t: T.pick + 0.2, x: 960, y: 520, zoom: 1.2, curve: C.cubicInOut },
+  { t: CLICK.choose, x: 960, y: 520, zoom: 1.2 },
+  { t: T.scanning + 0.3, x: 760, y: 320, zoom: 1.75, curve: C.cubicInOut },   // the folder lands, the mascot scans
+  { t: T.end, x: 760, y: 320, zoom: 1.8, curve: C.linear },
+  { t: T.end + 1.1, x: 960, y: 560, zoom: 0.66, curve: C.cubicInOut },
+  { t: T.end + 1.9, x: 960, y: 560, zoom: 0.8, curve: C.sineInOut },
+  { t: T.end + 2.9, x: 960, y: 560, zoom: 1.0, curve: C.cubicInOut },
 ];
-const SHAKES = [[NONE, 7, 10], [2.0, 5, 12], [2.3, 5, 12], [2.6, 5, 12], [ENTER, 4, 9], [18.25, 3, 12], [19.35, 3, 12], [29.0, 3, 10]];
-const handEnv = t => sstep(3.6, 4.4, t) * (1 - sstep(26.8, 27.6, t));
-const STILL = [[9.6, 10.55], [20.3, 21.3], [30.6, DUR]];              // holds: no float, the frame is dead still
+const STILL = [[T.pay2 + 0.6, T.s3], [T.pay4 + 0.1, T.s5], [T.end + 3.6, 999]];
+const SHAKES = [[T.enter + 0.05, 5, 9], [T.end + 2.1, 3, 10]];
 function camAt(t) {
-  const c = OM.camera(t, KEYS);
-  const still = STILL.some(([a, b]) => t >= a && t <= b);
-  const e = still ? 0 : handEnv(t) * 3.2;
-  let x = c.x + e * (Math.sin(1.7 * t) + 0.6 * Math.sin(2.9 * t + 1)) / c.zoom;
-  let y = c.y + e * (Math.sin(1.3 * t + 2) + 0.5 * Math.sin(3.3 * t)) / c.zoom;
-  let rot = c.rot;
-  for (const [th, amp, decay] of SHAKES) { const s = OM.shake(t, th, { amp, decay, seed: Math.round(th * 100) }); x += s.x / c.zoom; y += s.y / c.zoom; rot += s.rot; }
-  return { x, y, zoom: c.zoom, rot };
+  const k = OM.camera(t, KEYS), still = STILL.some(([a, b]) => t >= a && t <= b);
+  const e = still ? 0 : sstep(T.enter + 0.6, T.enter + 1.4, t) * (1 - sstep(T.end, T.end + 0.8, t)) * 3;
+  let x = k.x + e * (Math.sin(1.7 * t) + 0.6 * Math.sin(2.9 * t + 1)) / k.zoom, y = k.y + e * (Math.sin(1.3 * t + 2) + 0.5 * Math.sin(3.3 * t)) / k.zoom, rot = k.rot;
+  for (const [th, amp, decay] of SHAKES) { const s = OM.shake(t, th, { amp, decay, seed: Math.round(th * 100) }); x += s.x / k.zoom; y += s.y / k.zoom; rot += s.rot; }
+  return { x, y, zoom: k.zoom, rot };
 }
 
-// ───────────────────────── the mascot (the app's own drawing) ─────────────────────────
-function mascotSvg(mood, t) {
-  const INK = '#262626';
-  const faces = {
-    sad: `<ellipse cx="24" cy="35.6" rx="2.3" ry="2.6" fill="${INK}"/><ellipse cx="38" cy="35.6" rx="2.3" ry="2.6" fill="${INK}"/><path d="M20.5 31.6l5-1.6M41.5 31.6l-5-1.6" stroke="${INK}" stroke-width="1.8" stroke-linecap="round"/><path d="M28.5 42.6q2.5-2.6 5 0" stroke="${INK}" stroke-width="2" stroke-linecap="round" fill="none"/>`,
-    happy: `<path d="M21.3 36.2q2.7-4 5.4 0M35.3 36.2q2.7-4 5.4 0" stroke="${INK}" stroke-width="2.2" stroke-linecap="round" fill="none"/><path d="M27.3 39.6q3.7 5.4 7.4 0z" fill="${INK}"/><path d="M29.2 41.9q1.8 1.3 3.6 0" stroke="#ff8fa3" stroke-width="1.6" stroke-linecap="round" fill="none"/>`,
+// ───────── the mascot (the app's own drawing, every mood) ─────────
+function mascotSvg(mood, t, size) {
+  const I = '#262626';
+  const F = {
+    idle: `<ellipse cx="24" cy="35" rx="2.4" ry="3.1" fill="${I}"/><ellipse cx="38" cy="35" rx="2.4" ry="3.1" fill="${I}"/><path d="M28.5 40.5q2.5 2.6 5 0" stroke="${I}" stroke-width="2" stroke-linecap="round" fill="none"/>`,
+    happy: `<path d="M21.3 36.2q2.7-4 5.4 0M35.3 36.2q2.7-4 5.4 0" stroke="${I}" stroke-width="2.2" stroke-linecap="round" fill="none"/><path d="M27.3 39.6q3.7 5.4 7.4 0z" fill="${I}"/><path d="M29.2 41.9q1.8 1.3 3.6 0" stroke="#ff8fa3" stroke-width="1.6" stroke-linecap="round" fill="none"/>`,
+    working: `<ellipse cx="${(25.4 + Math.sin(t * 7) * 1.3).toFixed(2)}" cy="35" rx="2.4" ry="3.1" fill="${I}"/><ellipse cx="${(39.4 + Math.sin(t * 7) * 1.3).toFixed(2)}" cy="35" rx="2.4" ry="3.1" fill="${I}"/><path d="M29 41h4.4" stroke="${I}" stroke-width="2" stroke-linecap="round"/>`,
+    confused: `<ellipse cx="24" cy="35" rx="2.4" ry="3.1" fill="${I}"/><circle cx="38" cy="35.4" r="1.7" fill="${I}"/><path d="M35.4 29.6l4.6-1.4" stroke="${I}" stroke-width="1.8" stroke-linecap="round"/><path d="M27.5 41.6q1.6-1.8 3.2 0t3.2 0" stroke="${I}" stroke-width="1.9" stroke-linecap="round" fill="none"/>`,
+    sad: `<ellipse cx="24" cy="35.6" rx="2.3" ry="2.6" fill="${I}"/><ellipse cx="38" cy="35.6" rx="2.3" ry="2.6" fill="${I}"/><path d="M20.5 31.6l5-1.6M41.5 31.6l-5-1.6" stroke="${I}" stroke-width="1.8" stroke-linecap="round"/><path d="M28.5 42.6q2.5-2.6 5 0" stroke="${I}" stroke-width="2" stroke-linecap="round" fill="none"/>`,
+    sleepy: `<path d="M21.4 35.6q2.6 1.8 5.2 0M35.4 35.6q2.6 1.8 5.2 0" stroke="${I}" stroke-width="2" stroke-linecap="round" fill="none"/><ellipse cx="31" cy="41.4" rx="1.5" ry="1.8" fill="${I}"/>`,
   };
-  const sweep = Math.sin(t * 5) * 8;
-  return `<svg viewBox="0 0 64 64" width="200" height="200" style="overflow:visible">
-    <ellipse cx="31" cy="59" rx="15" ry="1.8" fill="#000" opacity=".08"/>
-    <path d="M31 11.5q-1.2-4.6 3-5.6" stroke="#5cc39a" stroke-width="2.4" stroke-linecap="round" fill="none"/>
+  F.celebrate = F.happy;
+  const u = (t * 1.4) % 1, z = (t * 0.6) % 1;
+  const extra = {
+    confused: `<text x="45" y="${(16 + Math.sin(t * 6) * 1.5).toFixed(2)}" font-size="13" font-weight="700" fill="${I}" font-family="GS">?</text>`,
+    sad: `<path d="M21.5 39.2q-1.6 2.6 0 3.6q1.6-1 0-3.6z" fill="#6cb8f0" transform="translate(0 ${(u * 9).toFixed(2)})" opacity="${(1 - u).toFixed(2)}"/>`,
+    sleepy: `<text x="${(46 + z * 6).toFixed(2)}" y="${(16 - z * 8).toFixed(2)}" font-size="8" font-weight="700" fill="${I}" opacity="${(1 - z).toFixed(2)}" font-family="GS">z</text>`,
+    celebrate: [[8, 14, '#ffc94d', 0], [54, 8, '#ff8fa3', 1.3], [58, 28, '#6cb8f0', 2.6]].map(([x, y, col, d]) =>
+      `<path transform="translate(${x} ${y}) scale(${(0.5 + 0.6 * Math.abs(Math.sin(t * 5 + d))).toFixed(2)})" d="M0 -4l1.2 2.8 2.8 1.2-2.8 1.2-1.2 2.8-1.2-2.8-2.8-1.2 2.8-1.2z" fill="${col}"/>`).join(''),
+  };
+  const sweep = mood === 'working' ? Math.sin(t * 7) * 18 : 0, tilt = mood === 'confused' ? -8 : 0;
+  return `<svg viewBox="0 0 64 64" width="${size}" height="${size}" style="overflow:visible"><ellipse cx="31" cy="59" rx="15" ry="1.8" fill="#000" opacity=".08"/>
+    <g transform="rotate(${tilt} 31 56)"><path d="M31 11.5q-1.2-4.6 3-5.6" stroke="#5cc39a" stroke-width="2.4" stroke-linecap="round" fill="none"/>
     <path d="M9 37C9 21 19 11 31 11S53 21 53 37C53 50 44 56.5 31 56.5S9 50 9 37Z" fill="#9fe5c7"/>
-    <path d="M15.5 29c1.6-5.6 5.4-9.4 10.5-11" stroke="#fff" stroke-width="2.4" stroke-linecap="round" fill="none" opacity=".75"/>
-    ${faces[mood] || faces.happy}
+    <path d="M15.5 29c1.6-5.6 5.4-9.4 10.5-11" stroke="#fff" stroke-width="2.4" stroke-linecap="round" fill="none" opacity=".75"/>${F[mood] || F.idle}
     <ellipse cx="19.5" cy="40.8" rx="2.8" ry="1.6" fill="#ff8fa3" opacity=".5"/><ellipse cx="42.5" cy="40.8" rx="2.8" ry="1.6" fill="#ff8fa3" opacity=".5"/>
-    <g transform="rotate(${sweep.toFixed(2)} 52 51)"><circle cx="47.5" cy="46.5" r="6.8" fill="#fff" fill-opacity=".9" stroke="${INK}" stroke-width="3"/>
-    <path d="M52.4 51.4l5.4 5.4" stroke="${INK}" stroke-width="4" stroke-linecap="round"/></g></svg>`;
+    <g transform="rotate(${sweep.toFixed(2)} 52 51)"><circle cx="47.5" cy="46.5" r="6.8" fill="#fff" fill-opacity=".9" stroke="${I}" stroke-width="3"/><path d="M52.4 51.4l5.4 5.4" stroke="${I}" stroke-width="4" stroke-linecap="round"/></g></g>${extra[mood] || ''}</svg>`;
 }
+const drawn = new WeakMap();
+function drawMascot(el, mood, t, size) { const h = mascotSvg(mood, t, size); if (drawn.get(el) !== h) { el.innerHTML = h; drawn.set(el, h); } }
 
-// ───────────────────────── the heap (cold open) ─────────────────────────
-const NAMES = ['final_v2.docx', 'สแกน_0012.pdf', 'รายงาน(1).xlsx', 'ใหม่ล่าสุดจริงๆ.docx', 'IMG_4471.jpg', 'สัญญา-แก้ไข3.pdf',
-  'Book1.xlsx', 'ไม่มีชื่อ.txt', 'งบ_สำรอง.xlsx', 'scan002.pdf', 'copy of copy.docx', 'สรุปประชุม.pptx', 'รหัสผ่าน.txt',
-  'ใบเสร็จ.png', 'draft_old.docx', 'ลูกค้า.csv', 'Wi-Fi.txt', 'เอกสารแนบ.zip'];
-const FILE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="#a5a39c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5"/></svg>';
+// ───────── cold open: the heap, the scan, the tokens ─────────
+const ICON = { file: 'M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5', x: 'M6 6l12 12M18 6 6 18' };
+const NAMES = ['final_v2.docx', 'สแกน_0012.pdf', 'รายงาน(1).xlsx', 'ใหม่ล่าสุดจริงๆ.docx', 'IMG_4471.jpg', 'สัญญา-แก้ไข3.pdf', 'Book1.xlsx', 'ไม่มีชื่อ.txt',
+  'งบ_สำรอง.xlsx', 'scan002.pdf', 'copy of copy.docx', 'สรุปประชุม.pptx', 'ใบเสร็จ.png', 'draft_old.docx', 'ลูกค้า.csv', 'เอกสารแนบ.zip'];
 const rnd = OM.rng(7);
+const fileSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="#a5a39c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="${ICON.file}"/></svg>`;
 const HEAP = NAMES.map((n, i) => {
-  const a = (i / NAMES.length) * Math.PI * 2 + rnd() * 0.5, r = 220 + rnd() * 330;
-  const d = document.createElement('div'); d.className = 'chip'; d.innerHTML = FILE_ICON + n; $('desk').appendChild(d);
-  return { el: d, x: bx + Math.cos(a) * r * 1.5 - 120, y: by + Math.sin(a) * r * 0.62, rot: (rnd() - 0.5) * 16, ph: rnd() * 6, out: a };
+  const a = (i / NAMES.length) * Math.PI * 2 + rnd() * 0.4, r = 300 + rnd() * 260;
+  const d = document.createElement('div'); d.className = 'chip'; d.innerHTML = fileSvg + n; $('desk').appendChild(d);
+  return { el: d, x: 960 + Math.cos(a) * r * 1.45 - 110, y: 470 + Math.sin(a) * r * 0.7 - 20, rot: (rnd() - 0.5) * 14, ph: rnd() * 6, a };
 });
+const CHECK = [[0.5, 3], [1.15, 7], [1.8, 12]];                // the three files the mascot checks: [t, heap index]
+const xs = CHECK.map(() => { const d = document.createElement('div'); d.className = 'x'; d.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.4" stroke-linecap="round"><path d="${ICON.x}"/></svg>`; $('desk').appendChild(d); return d; });
+const squig = (id, seed) => { const r = OM.rng(seed); let p = ''; for (let i = 0; i < 9; i++) { const y = 10 + i * 19, w = 90 + r() * 70; let d = `M2 ${y}`; for (let x = 10; x < w; x += 10) d += ` q5 ${((r() - 0.5) * 9).toFixed(1)} 10 0`; p += `<path d="${d}" stroke="#b9b7b0" stroke-width="5" fill="none" stroke-linecap="round"/>`; } $(id).innerHTML = p; };
+squig('squig', 3); squig('squig2', 5);
+const TOKENS = [ // note, link, key: [colour, icon, direction they slip away]
+  ['#f6c453', 'M5 4h14v11l-5 5H5zM14 20v-5h5', -2.4], ['#f3a7c0', 'M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1', -0.6],
+  ['#c9b8f5', 'M8 11a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM11 12l8-8M16 7l2 2M14 9l2 2', 1.5]];
+const tokEls = TOKENS.map(([col, d]) => { const e = document.createElement('div'); e.className = 'token'; e.style.background = col;
+  e.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="#262626" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="${d}"/></svg>`; $('tokens').appendChild(e); return e; });
 
-// ───────────────────────── the word written at the end ─────────────────────────
-const WORD = 'CAHON';
-const letters = [...WORD].map(ch => { const s = document.createElement('span'); s.textContent = ch; $('word').appendChild(s); return s; });
+// ───────── overlays in the app: rings, a line, badges ─────────
+const NS = 'http://www.w3.org/2000/svg', over = $('over');
+const svgEl = (tag, attrs) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); over.appendChild(e); return e; };
+svgEl('defs', {}).innerHTML = '<filter id="glow" x="-20%" y="-50%" width="140%" height="200%"><feGaussianBlur stdDeviation="5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>';
+function ring(r, t0, t1, pad = 8) {
+  const e = svgEl('rect', { x: r.x - pad, y: r.y - pad, width: r.w + pad * 2, height: r.h + pad * 2, rx: 16, fill: 'none', stroke: '#3fcf8e', 'stroke-width': 5, filter: 'url(#glow)', pathLength: 1, 'stroke-dasharray': 1 });
+  return t => { const k = ease.cubicOut(seg(t, t0, t0 + 0.5)), out = 1 - sstep(t1 - 0.3, t1, t); e.setAttribute('stroke-dashoffset', (1 - k).toFixed(4)); e.setAttribute('opacity', ((t >= t0 ? 1 : 0) * out).toFixed(3)); };
+}
+const RINGS = [ring(ROW1, T.pay1 + 0.15, T.open1 + 0.4), ring(OCRTXT, T.pay3 + 0.1, T.s4 + 0.1), ring(LIST, T.pay4, T.s5 + 0.2, 4), ring(NEWF, T.pay5 + 0.1, T.end + 0.6, 6)];
+const typedEnd = { x: BOX.x + 230, y: by + 22 }, rowStart = { x: ROW1.x + 60, y: ROW1.y + 30 };
+const arrow = svgEl('path', { d: `M${typedEnd.x} ${typedEnd.y} C ${typedEnd.x + 60} ${typedEnd.y + 90}, ${rowStart.x + 70} ${rowStart.y - 110}, ${rowStart.x} ${rowStart.y}`,
+  fill: 'none', stroke: '#3fcf8e', 'stroke-width': 6, 'stroke-linecap': 'round', filter: 'url(#glow)' });
+const arrowDot = svgEl('circle', { r: 10, fill: '#3fcf8e' });
+const BADGES = [['PDF', '#e5484d'], ['W', '#2f6fe4'], ['X', '#1f9d55']].map(([txt, col]) => { const e = document.createElement('div'); e.className = 'badge';
+  e.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="#a5a39c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="${ICON.file}"/></svg><b style="background:${col}">${txt}</b>`; $('badges').appendChild(e); return e; });
+
+// ───────── the word at the end ─────────
+const WORD = 'CAHON', letters = [...WORD].map(ch => { const s = document.createElement('span'); s.textContent = ch; $('word').appendChild(s); return s; });
 const caret = document.createElement('i'); caret.className = 'cur'; $('word').appendChild(caret);
 
-// ───────────────────────── seek ─────────────────────────
+// ───────── seek ─────────
 const g = $('ground').getContext('2d');
 let curFrame = -1, CAM = null, TRACK = {};
-const mat = M => `matrix(${M.map(v => +v.toFixed(5)).join(',')})`;
-const place = (el, x, y, s = 1, op = 1, rot = 0) => { el.style.transform = `translate(${x}px,${y}px) rotate(${rot}deg) scale(${s})`; el.style.opacity = op; };
+const mat = Mx => `matrix(${Mx.map(v => +v.toFixed(5)).join(',')})`;
+const tf = (el, x, y, s = 1, op = 1, rot = 0, sx = 1, sy = 1) => { el.style.transform = `translate(${x.toFixed(2)}px,${y.toFixed(2)}px) rotate(${rot.toFixed(2)}deg) scale(${(s * sx).toFixed(4)},${(s * sy).toFixed(4)})`; el.style.opacity = op.toFixed(3); };
+const popS = (t, t0) => t < t0 ? 0 : OM.spring(t - t0, 0.45, 18);
 
 function ground(cam) {
-  g.setTransform(1, 0, 0, 1, 0, 0);
-  g.fillStyle = '#f3f1ec'; g.fillRect(0, 0, 1920, 1080);
+  g.setTransform(1, 0, 0, 1, 0, 0); g.fillStyle = '#f3f1ec'; g.fillRect(0, 0, 1920, 1080);
   const L = OM.lattice(cam, { depth: 1.3, spacing: 56, px: 1.5 });
   g.setTransform(...L.matrix); g.fillStyle = 'rgba(80,70,50,.16)';
   for (let x = L.x0; x <= L.x1; x += L.spacing) for (let y = L.y0; y <= L.y1; y += L.spacing) { g.beginPath(); g.arc(x, y, L.r, 0, 6.2832); g.fill(); }
   g.setTransform(1, 0, 0, 1, 0, 0);
-  const v = g.createRadialGradient(960, 540, 300, 960, 540, 1150); v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(60,50,30,.10)');
-  g.fillStyle = v; g.fillRect(0, 0, 1920, 1080);
 }
 
 function seek(t) {
   const pending = [];
-  CAM = camAt(t);
-  ground(CAM);
+  CAM = camAt(t); ground(CAM);
   $('world').style.transform = mat(OM.view(CAM));
+  const ENTER = T.enter;
 
-  // the app: the recording, frame by frame (the cursor in it is the hand that causes everything)
-  const appIn = sstep(ENTER, ENTER + 0.55, t), appOut = 1 - sstep(APP_OUT, APP_OUT + 0.8, t);
-  const fr = clamp(Math.round(footAt(t) * FPS), 0, NFR - 1);
-  if (fr !== curFrame) { curFrame = fr; const img = $('frame'); img.src = `../public/frames/${String(fr + 1).padStart(4, '0')}.jpg`; pending.push(img.decode().catch(() => {})); }
+  // ── the app (the recording)
+  const appIn = sstep(ENTER + 0.1, ENTER + 0.6, t), APP_OUT = T.end + 0.4, appOut = 1 - sstep(APP_OUT, APP_OUT + 0.8, t);
+  const fr = clamp(Math.round(footAt(t) * FPS), 0, NFR - 1), src = `../public/frames/${String(fr + 1).padStart(4, '0')}.jpg`;
+  if (fr !== curFrame) { curFrame = fr; $('frame').src = src; pending.push($('frame').decode().catch(() => {})); }
   const shrink = lerp(1, 0.94, sstep(APP_OUT - 0.2, APP_OUT + 0.8, t));
   $('app').style.transform = `translate(${960 * (1 - shrink)}px,${540 * (1 - shrink) + 40 * sstep(APP_OUT, APP_OUT + 0.8, t)}px) scale(${shrink})`;
   $('app').style.opacity = appIn * appOut;
 
-  // the heap: drifts, trembles at "not found", is blown out at ENTER
-  const blow = ease.expoOut(seg(t, ENTER, ENTER + 0.9));
+  // ── cold open: the heap drifts; three files are checked and are wrong
+  const blow = ease.expoOut(seg(t, ENTER + 0.1, ENTER + 1.0)), heapOp = (0.85 - 0.4 * sstep(2.4, 3.0, t) + 0.3 * sstep(4.4, 4.9, t)) * (1 - blow);
   HEAP.forEach((h, i) => {
-    const imp = OM.ring(t - NONE, 7, 30) * 6;
-    const dx = Math.sin(t * 0.8 + h.ph) * 8 + Math.cos(h.out) * 900 * blow + imp * Math.sin(h.ph * 3);
-    const dy = Math.cos(t * 0.7 + h.ph) * 6 + Math.sin(h.out) * 600 * blow;
-    place(h.el, h.x + dx, h.y + dy, 1, (0.55 + 0.25 * sstep(0, 1.2, t)) * (1 - blow), h.rot + 10 * blow * Math.sin(h.ph));
+    const dx = Math.sin(t * 0.8 + h.ph) * 8 + Math.cos(h.a) * 900 * blow, dy = Math.cos(t * 0.7 + h.ph) * 6 + Math.sin(h.a) * 600 * blow;
+    const chk = CHECK.find(([, k]) => k === i), wob = chk ? OM.ring(t - chk[0] - 0.25, 7, 28) * 5 : 0;
+    const lift = chk ? 0.1 * sstep(chk[0] - 0.2, chk[0], t) * (1 - sstep(chk[0] + 0.5, chk[0] + 0.7, t)) : 0;
+    tf(h.el, h.x + dx, h.y + dy, 1 + lift, heapOp, h.rot + wob);
   });
+  CHECK.forEach(([tc, k], j) => { const h = HEAP[k]; tf(xs[j], h.x + 40, h.y - 46, popS(t, tc + 0.22), sstep(tc + 0.2, tc + 0.3, t) * (1 - sstep(2.5, 2.8, t))); });
+  // the scan it can't read
+  const sc = popS(t, 2.75), scOut = 1 - sstep(4.35, 4.6, t);
+  tf($('scanCard'), 860, 360 + (1 - sc) * 60, sc, sstep(2.7, 2.85, t) * scOut, -4 + OM.ring(t - 3.9, 6, 25) * 4);
+  // the note, the link and the key slip away
+  tokEls.forEach((e, i) => { const dir = TOKENS[i][2], t0 = 4.55 + i * 0.12, p = popS(t, t0), away = cubicIn(seg(t, 5.2, 5.9));
+    tf(e, 912 + (i - 1) * 150 + Math.cos(dir) * 520 * away, 300 + Math.sin(dir) * 330 * away - (1 - p) * 40, p, sstep(t0, t0 + 0.1, t) * (1 - sstep(5.75, 5.95, t)), (i - 1) * 8 + away * 40 * (i - 1)); });
+  // the system search spins and spins
+  const sys = $('sys'), sysIn = sstep(5.2, 5.6, t), land = OM.impact(t, ENTER, { decay: 8 });
+  Object.assign(sys.style, { left: BOX.x + 'px', top: BOX.y + 'px', width: BOX.w + 'px', height: BOX.h + 'px' });
+  sys.style.transform = `scale(${land.sx},${land.sy})`; sys.style.opacity = sysIn * (1 - sstep(ENTER + 0.2, ENTER + 0.6, t));
+  sys.style.background = t >= ENTER ? '#fff' : '#e9e8e4';
+  $('sysq').textContent = OM.typeOn(t, 5.45, 'สัญญาเช่า', { cps: 14 }).str;
+  $('spin').style.transform = `rotate(${((t * 420) % 360).toFixed(1)}deg)`;
 
-  // the system search: types, spins, fails — then becomes CAHON's box (same place, its look changes)
-  const sys = $('sys');
-  const morph = ease.expoOut(seg(t, ENTER, ENTER + 0.5));
-  sys.style.left = BOX.x + 'px'; sys.style.top = BOX.y + 'px'; sys.style.width = BOX.w + 'px'; sys.style.height = BOX.h + 'px';
-  sys.style.transform = `scale(${1 + 0.04 * OM.impact(t, ENTER, { decay: 8 }).r})`;
-  sys.style.opacity = 1 - sstep(ENTER + 0.15, ENTER + 0.55, t);
-  sys.style.background = morph > 0 ? '#fff' : '#e9e8e4';
-  const ty = OM.typeOn(t, TYPE0, 'สัญญาเช่า', { cps: CPS });
-  $('sysq').textContent = ty.str;
-  $('syscaret').style.opacity = t < SPIN0 ? 1 : 0;
-  const spin = $('spin'); spin.style.transform = `rotate(${(t * 520) % 360}deg)`;
-  spin.style.opacity = t > SPIN0 && t < NONE ? 1 : 0.25;
-  const none = $('none'), ni = OM.wordRise(t, NONE);
-  none.style.left = BOX.x + 24 + 'px'; none.style.top = BOX.y + BOX.h + 16 + 'px';
-  none.style.transform = `translate(${OM.ring(t - NONE, 9, 40) * 6}px,${ni.y}px)`;
-  none.style.opacity = ni.op * (1 - sstep(ENTER, ENTER + 0.3, t));
+  // the mascot of the story: checks, fails, can't read, loses things, waits; jumps onto the bar; comes back at the end
+  const star = $('star');
+  let sx = 900, sy = 520, smood = 'idle', ssize = 170, sop = 1, ssx = 1, ssy = 1;
+  const spots = [[0, 900, 560], ...CHECK.map(([tc, k]) => [tc, HEAP[k].x - 40, HEAP[k].y - 120])];
+  for (let i = spots.length - 1; i >= 0; i--) { const [ta, xa, ya] = spots[i]; if (t >= ta - 0.35 || i === 0) { if (i > 0) { const [, xp, yp] = spots[i - 1]; const hp = OM.hop(t, ta - 0.35, ta, { x: xp, y: yp }, { x: xa, y: ya }, { height: 90 }); sx = hp.x; sy = hp.y; } else { sx = xa; sy = ya; } break; } }
+  if (t > 0.3 && t < 2.4) smood = t > 1.6 ? 'confused' : 'working';
+  if (t >= 2.4) { const hp = OM.hop(t, 2.4, 2.8, { x: spots[3][1], y: spots[3][2] }, { x: 700, y: 420 }, { height: 80 }); sx = hp.x; sy = hp.y; smood = 'working'; }
+  if (t >= 3.6) smood = 'sad';
+  if (t >= 4.4) { const hp = OM.hop(t, 4.4, 4.75, { x: 700, y: 420 }, { x: 830, y: 440 }, { height: 60 }); sx = hp.x; sy = hp.y; smood = t > 5.25 ? 'sad' : 'confused'; }
+  const perch = { x: BOX.x + BOX.w - 190, y: BOX.y + BOX.h - 12 };
+  if (t >= 5.5) { const hp = OM.hop(t, 5.5, 5.85, { x: 830, y: 440 }, perch, { height: 70 }); sx = hp.x; sy = hp.y; smood = t > 6.15 ? 'sleepy' : 'sad'; ssize = lerp(170, 120, sstep(5.5, 5.85, t)); }
+  if (t >= ENTER - 0.45) { const hp = OM.hop(t, ENTER - 0.45, ENTER, perch, { x: bx - 60, y: BOX.y - 105 }, { height: 120 }); sx = hp.x; sy = hp.y; smood = 'happy'; ssize = 120;
+    const im = OM.impact(t, ENTER, { decay: 8 }); ssx = im.sx; ssy = im.sy; }
+  if (t >= ENTER + 0.3) sop = 1 - sstep(ENTER + 0.3, ENTER + 0.7, t);
+  const endHop = [T.end + 1.5, T.end + 2.1];
+  if (t >= endHop[0] - 0.1) { const hp = OM.hop(t, endHop[0], endHop[1], { x: 300, y: 860 }, { x: END_BOX.x + END_BOX.w - 230, y: END_BOX.y - 178 }, { height: 260 }); sx = hp.x; sy = hp.y; ssize = 200; smood = 'celebrate';
+    sop = sstep(endHop[0] - 0.1, endHop[0] + 0.05, t); const im = OM.impact(t, endHop[1], { decay: 7 }); ssx = im.sx; ssy = im.sy;
+    sy += t > T.end + 3 ? -Math.abs(Math.sin((t - T.end - 3) * 5)) * 14 * (1 - sstep(DUR - 1.6, DUR - 1.1, t)) : 0; }
+  if (t > ENTER + 0.7 && t < endHop[0] - 0.1) sop = 0;
+  if (sop > 0) drawMascot(star, smood, t, ssize);
+  tf(star, sx, sy, 1, sop, 0, ssx, ssy);
 
-  // the hits over the pain (a burst of bare cuts)
-  const st = $('stac'); const hit = HITS.filter(([h]) => t >= h && t < HITS_END).pop() || STAC.filter(([h]) => t >= h && t < h + 0.6).pop();
-  st.textContent = hit ? hit[1] : '';
-  st.style.top = (hit && hit[0] < ENTER ? 150 : 140) + 'px';
-  st.style.color = hit && hit[0] < ENTER ? '#d64545' : '#262626';
-  st.className = hit && hit[0] > ENTER ? 'on' : '';
-  st.style.top = (hit && hit[0] < ENTER ? 120 : 90) + 'px';
-  if (hit) { const k = OM.impact(t, hit[0], { decay: 12 }); st.style.transform = `translateX(-50%) scale(${k.sx},${k.sy})`; } else st.style.transform = 'translateX(-50%)';
+  // ── overlays on the app
+  RINGS.forEach(f => f(t));
+  // word → file: a line draws from the typed word to the result, a dot runs along it
+  const ak = ease.cubicOut(seg(t, T.pay1 - 0.1, T.pay1 + 0.6)), aOut = 1 - sstep(T.open1 + 0.1, T.open1 + 0.4, t), aOn = t > T.pay1 - 0.1 ? 1 : 0;
+  const AL = arrow.getTotalLength();
+  arrow.setAttribute('stroke-dasharray', `${(AL * ak).toFixed(1)} ${AL.toFixed(1)}`); arrow.setAttribute('opacity', aOn * aOut);
+  const pt = arrow.getPointAtLength(AL * ak); arrowDot.setAttribute('cx', pt.x.toFixed(1)); arrowDot.setAttribute('cy', pt.y.toFixed(1));
+  arrowDot.setAttribute('opacity', aOn * aOut);
 
-  // captions: the pain asked, then answered
-  const capEl = $('cap'); capEl.innerHTML = '';
-  for (const [a, b, w1, t2, w2, pain] of CAPS) {
-    if (t < a || t > b) continue;
-    const out = 1 - sstep(b - 0.3, b, t);
-    const p1 = OM.wordRise(t, a), d1 = document.createElement('div'); d1.className = 'w' + (pain ? ' pain' : ''); d1.textContent = w1;
-    d1.style.opacity = p1.op * out * (t > t2 && pain ? 0.45 : 1); d1.style.transform = `translateY(${p1.y}px) scale(${p1.s})`; capEl.appendChild(d1);
-    if (t >= t2) { const p2 = OM.wordRise(t, t2), d2 = document.createElement('div'); d2.className = 'w fix'; d2.textContent = w2;
-      d2.style.opacity = p2.op * out; d2.style.transform = `translateY(${p2.y}px) scale(${p2.s})`; capEl.appendChild(d2); }
-  }
+  // the lens on the number inside the file
+  const L = $('lens'), lh = $('lensHandle'), lz = 2.0, lr = 95, hc = ctr(HL2), lOn = t > T.pay2 + 0.15 ? 1 : 0;
+  const lp = popS(t, T.pay2 + 0.15), lOut = 1 - sstep(T.s3 + 0.05, T.s3 + 0.35, t), lm = ease.cubicOut(seg(t, T.pay2 + 0.15, T.pay2 + 0.8));
+  const lx = lerp(hc.x + 170, hc.x, lm), ly = lerp(hc.y - 100, hc.y, lm);
+  tf(L, lx - lr, ly - lr, lp, lOn * lOut);
+  if (t > T.pay2 && t < T.s3 + 0.4) { const li = $('lensImg'); if (li.getAttribute('src') !== src) { li.src = src; pending.push(li.decode().catch(() => {})); }
+    li.style.width = 1920 * lz + 'px'; li.style.transform = `translate(${(-(lx * lz - lr) - 9).toFixed(1)}px,${(-(ly * lz - lr) - 9).toFixed(1)}px)`; }
+  tf(lh, lx + lr * 0.62, ly + lr * 0.62, lp, lOn * lOut, 45);
 
-  // the end: the box alone (it comes out of the app's box), the mascot hops onto it, the caret writes the name
-  const solo = ease.cubicInOut(seg(t, BOX_SOLO - 0.6, BOX_SOLO + 0.5));
-  const fromBox = { x: 960 - 0.94 * (960 - BOX.x), y: 540 + 40 - 0.94 * (540 - BOX.y), w: BOX.w * 0.94, h: BOX.h * 0.94 };
+  // OCR: a paper rises from the file, a beam reads it, it flies into the text
+  const oc = $('ocrCard'), ocIn = popS(t, CLICK.ocr + 0.05), fly = ease.cubicInOut(seg(t, T.read + 0.1, T.read + 0.8));
+  const cardHome = { x: 1590, y: OCRROW.y - 290 }, cardTo = { x: OCRTXT.x + OCRTXT.w / 2 - 100, y: OCRTXT.y + 10 };
+  tf(oc, lerp(cardHome.x, cardTo.x, fly), lerp(cardHome.y, cardTo.y, fly) + (1 - ocIn) * 60, ocIn * lerp(0.82, 0.5, fly), (t > CLICK.ocr ? 1 : 0) * (1 - sstep(T.read + 0.55, T.read + 0.85, t)), lerp(5, 0, fly));
+  $('beam').style.top = ((((t - CLICK.ocr) * 0.85) % 1 + 1) % 1 * 250 - 13).toFixed(1) + 'px';
+
+  // file types: three badges pop over the chips; Excel is picked and jumps into its chip
+  const bIn = T.type4 + 1.2, pick = CLICK.excel;
+  BADGES.forEach((e, i) => { const p = popS(t, bIn + i * 0.12), cx0 = CHIPS.x + 120 + i * 130, cy0 = CHIPS.y - 150;
+    const isX = i === 2, j = isX ? cubicIn(seg(t, pick + 0.05, pick + 0.4)) : 0;
+    const op = (t > bIn + i * 0.12 ? 1 : 0) * (isX ? 1 - sstep(pick + 0.35, pick + 0.45, t) : 1 - sstep(pick - 0.05, pick + 0.2, t));
+    const x = lerp(cx0, EXCEL.x + EXCEL.w / 2 - 48, j), y = lerp(cy0, EXCEL.y - 40, j);
+    tf(e, x, y, p * (isX ? (1 + 0.15 * sstep(pick - 0.5, pick - 0.15, t)) * (1 - 0.55 * j) : 1 - 0.3 * sstep(pick - 0.05, pick + 0.2, t)), op, isX ? Math.sin(t * 14) * 4 * sstep(pick - 0.5, pick - 0.2, t) * (1 - j) : 0); });
+  // the calendar flips to 30
+  const cal = $('cal'), cIn = popS(t, CLICK.date + 0.1), cOut = 1 - sstep(T.pay4 + 0.6, T.pay4 + 0.9, t);
+  tf(cal, DATEB.x + DATEB.w / 2 - 60, DATEB.y - 150 + (1 - cIn) * 30, cIn, (t > CLICK.date + 0.1 ? 1 : 0) * cOut);
+  const flips = [1, 7, 14, 21, 30], fu = seg(t, CLICK.date + 0.5, CLICK.d30 + 0.1) * (flips.length - 1), fk = clamp(Math.floor(fu + 1e-4), 0, flips.length - 1);
+  $('calNum').textContent = flips[fk];
+  $('calNum').style.transform = `scaleY(${(fk < flips.length - 1 ? 1 - 0.6 * Math.sin(Math.PI * (fu % 1)) : 1 + 0.15 * OM.ring(t - CLICK.d30 - 0.1, 7, 20)).toFixed(3)})`;
+  // the folder flies from the window into the panel
+  const fo = $('folder'), fIn = popS(t, CLICK.dir + 0.05), fh = OM.hop(t, CLICK.choose + 0.05, CLICK.choose + 0.75, { x: DIR.x + 40, y: DIR.y - 60 }, { x: NEWF.x + 30, y: NEWF.y - 80 }, { height: 180 });
+  const fLand = OM.impact(t, CLICK.choose + 0.75, { decay: 8 });
+  tf(fo, t < CLICK.choose + 0.05 ? DIR.x + 40 : fh.x, t < CLICK.choose + 0.05 ? DIR.y - 60 : fh.y, fIn * (1 - sstep(CLICK.choose + 0.95, CLICK.choose + 1.25, t)), t > CLICK.dir ? 1 : 0, 0, fLand.sx, fLand.sy);
+
+  // ── the host, in the corner: reacts to every beat
+  const host = $('host'), hostIn = popS(t, ENTER + 0.8), hostOut = 1 - sstep(T.end + 1.3, T.end + 1.5, t);
+  const PAY = [T.pay1, T.pay2, T.read, T.pay4, T.pay5];
+  const WORK = [[CLICK.box1, T.pay1], [CLICK.box2, T.pay2], [CLICK.box3, T.read], [CLICK.box4, T.pay4], [CLICK.add, T.pay5]];
+  let hmood = 'idle';
+  if (WORK.some(([a, b]) => t >= a && t < b)) hmood = 'working';
+  if (PAY.some(p => t >= p && t < p + 1.4)) hmood = 'happy';
+  if ((t >= T.read && t < T.read + 1.4) || t >= T.pay5) hmood = 'celebrate';
+  const lastPay = PAY.filter(p => t >= p).pop() ?? -9, dt = t - lastPay;
+  const hop = dt < 1.2 ? Math.abs(Math.sin(dt * 9)) * 26 * Math.exp(-dt * 2.2) : 0;
+  drawMascot(host, hmood, t, 210);
+  tf(host, 0, -hop - (1 - hostIn) * 120, 1, (t > ENTER + 0.8 ? 1 : 0) * hostOut);
+  tf($('hostOk'), 205, 830, popS(t, lastPay + 0.05), (dt >= 0 && dt < 1.4 ? 1 : 0) * (1 - sstep(lastPay + 1.0, lastPay + 1.3, t)) * hostOut);
+
+  // ── the end: the box alone, the name written, the tagline
+  const solo = ease.cubicInOut(seg(t, T.end + 0.6, T.end + 1.6));
+  const fromBox = { x: 960 - 0.94 * (960 - BOX.x), y: 580 - 0.94 * (540 - BOX.y), w: BOX.w * 0.94, h: BOX.h * 0.94 };
   const r = { x: lerp(fromBox.x, END_BOX.x, solo), y: lerp(fromBox.y, END_BOX.y, solo), w: lerp(fromBox.w, END_BOX.w, solo), h: lerp(fromBox.h, END_BOX.h, solo) };
-  const box = $('box');
-  Object.assign(box.style, { left: r.x + 'px', top: r.y + 'px', width: r.w + 'px', height: r.h + 'px', padding: `0 ${r.h * 0.32}px`, gap: r.h * 0.22 + 'px' });
+  const box = $('box'); Object.assign(box.style, { left: r.x + 'px', top: r.y + 'px', width: r.w + 'px', height: r.h + 'px', padding: `0 ${r.h * 0.32}px`, gap: r.h * 0.22 + 'px' });
   box.style.opacity = sstep(APP_OUT + 0.2, APP_OUT + 0.6, t);
-  $('lens').setAttribute('width', r.h * 0.42); $('lens').setAttribute('height', r.h * 0.42);
-  const fs = r.h * 0.56; $('word').style.fontSize = fs + 'px';
-  letters.forEach((s, i) => { const l = OM.letterDrop(t, WRITE, i, { stagger: 0.09, dist: 40 }); s.style.opacity = l.op; s.style.transform = `translateY(${l.y}px) scale(${l.sx},${l.sy})`; });
-  const typed = Math.min(WORD.length, Math.max(0, Math.floor((t - WRITE) / 0.09) + 1));
+  $('lensIcon').setAttribute('width', r.h * 0.42); $('lensIcon').setAttribute('height', r.h * 0.42);
+  const WRITE = T.end + 2.3, fs = r.h * 0.56; $('word').style.fontSize = fs + 'px';
+  letters.forEach((s, i) => { const l = OM.letterDrop(t, WRITE, i, { stagger: 0.1, dist: 40 }); s.style.opacity = l.op; s.style.transform = `translateY(${l.y}px) scale(${l.sx},${l.sy})`; });
   caret.style.width = fs * 0.5 + 'px'; caret.style.height = fs * 0.82 + 'px'; caret.style.marginLeft = fs * 0.08 + 'px';
-  caret.style.opacity = t < WRITE - 0.4 ? 0 : (t < WRITE + 0.5 ? 1 : (Math.floor((t - WRITE) * 2) % 2 ? 0.15 : 1));
-
-  // the mascot: leaves the folder panel, hops onto the box, celebrates
-  const m = $('mascot');
-  const hop = OM.hop(t, MASCOT_HOP[0], MASCOT_HOP[1], { x: fromBox.x + 30, y: 300 }, { x: END_BOX.x + END_BOX.w - 230, y: END_BOX.y - 178 }, { height: 220 });
-  const land = OM.impact(t, MASCOT_HOP[1], { decay: 7 });
-  const bounce = t > WRITE + 0.6 ? Math.abs(Math.sin((t - WRITE - 0.6) * 5)) * -14 * (1 - sstep(30.4, 30.9, t)) : 0;
-  place(m, hop.x, hop.y + bounce, 1, sstep(MASCOT_HOP[0] - 0.05, MASCOT_HOP[0] + 0.15, t));
-  m.style.transform += ` scale(${land.sx},${land.sy})`;
-  m.innerHTML = mascotSvg(t > MASCOT_HOP[1] ? 'happy' : 'happy', t);
-
-  const tg = OM.wordRise(t, TAG), gt = OM.wordRise(t, GET);
+  caret.style.opacity = t < WRITE - 0.4 ? 0 : (t < WRITE + 0.6 ? 1 : (Math.floor((t - WRITE) * 2) % 2 ? 0.15 : 1));
+  const tg = OM.wordRise(t, WRITE + 0.9), gt = OM.wordRise(t, WRITE + 1.3);
   $('tag').style.top = END_BOX.y + END_BOX.h + 54 + 'px'; $('tag').style.opacity = tg.op; $('tag').style.transform = `translateY(${tg.y}px)`;
   $('get').style.top = END_BOX.y + END_BOX.h + 140 + 'px'; $('get').style.opacity = gt.op; $('get').style.transform = `translateY(${gt.y}px)`;
 
-  const M = OM.view(CAM);
-  TRACK = { box: OM.projectBox(M, { ...r, op: +box.style.opacity }) };
-  if (HUD) $('hud').textContent = `t ${t.toFixed(2)} · foot ${footAt(t).toFixed(2)} · zoom ${CAM.zoom.toFixed(2)}`;
+  TRACK = { box: OM.projectBox(OM.view(CAM), { ...r, op: +box.style.opacity }) };
+  if (HUD) $('hud').textContent = `t ${t.toFixed(2)} · rec ${footAt(t).toFixed(2)} · zoom ${CAM.zoom.toFixed(2)}`;
   return Promise.all(pending).then(() => true);
 }
 
 window.__seek = t => seek(t);
 window.__track = t => { seek(t); return TRACK; };
 window.__motion = (t0, t1) => OM.screenTravel(camAt(t0), camAt(t1), camAt((t0 + t1) / 2));   // footage flips are cuts, not travel
-window.__events = () => [
-  ...[0.35, 0.45, 0.55, 0.65, 0.75].map(t => ({ t, kind: 'key' })), { t: NONE, kind: 'thud' },
-  ...HITS.map(([t]) => ({ t, kind: 'hit' })), { t: ENTER, kind: 'enter' },
-  ...[4.3, 6.6, 8.0, 12.7, 13.5, 18.8, 19.4, 20.0, 22.8, 24.3].map(t => ({ t, kind: 'click' })),
-  ...[8.1, 9.55, 11.05, 17.35, 18.25, 19.35, 20.25].map(t => ({ t, kind: 'whoosh' })),
-  { t: 14.9, kind: 'done' }, { t: 26.5, kind: 'done' }, { t: MASCOT_HOP[1], kind: 'land' },
-  ...letters.map((_, i) => ({ t: WRITE + i * 0.09, kind: 'key' })),
-];
+window.__events = () => ({ T, CLICK, CHECK: CHECK.map(c => c[0]), DUR });
 const Q = new URLSearchParams(location.search), HUD = Q.has('hud');
 if (HUD) $('hud').style.display = 'block';
 window.__ready = document.fonts.ready.then(() => seek(Q.has('t') ? +Q.get('t') : 0));

@@ -87,65 +87,83 @@ async function typeIn(page, selector, text) {
 }
 
 // ------------------------------------------------------------ the take
+// Slow and calm: the film can speed up a calm take, but a rushed one can't be slowed.
 async function story(p) {
   await mark(p, "home", "#main");
   await p.waitForTimeout(1500);
 
   // 1 · a word you remember → the file
-  await mark(p, "type1", ".input.search");
+  await mark(p, "box", ".input.search");
   await typeIn(p, "#q", "สัญญาเช่า");
-  await p.waitForTimeout(350);
-  await mark(p, "found1", "#results li.row >> nth=0");
-  await click(p, "#results li.row >> nth=0", { dx: 0.3, after: 500 });
+  await mark(p, "typed1", ".input.search");
+  await p.waitForTimeout(500);
+  await mark(p, "row1", "#results li.row >> nth=0");
+  await p.waitForTimeout(900);
+  await click(p, "#results li.row >> nth=0", { dx: 0.3, after: 700 });
   await mark(p, "detail1", "#detail");
-  await p.waitForTimeout(1600);
+  await p.waitForTimeout(1500);
 
   // 2 · something written inside → found inside
-  await mark(p, "type2", ".input.search");
+  await mark(p, "box2", ".input.search");
   await typeIn(p, "#q", "35,000");
-  await p.waitForTimeout(400);
-  await mark(p, "found2", "#results li.row >> nth=0");
-  await p.waitForTimeout(1800);
+  await p.waitForTimeout(600);
+  await mark(p, "hl2", "#results li.row >> nth=0 >> mark");
+  await mark(p, "row2", "#results li.row >> nth=0");
+  await p.waitForTimeout(2200);
 
   // 3 · a scanned bill → OCR on request
-  await mark(p, "type3", ".input.search");
+  await mark(p, "box3", ".input.search");
   await typeIn(p, "#q", "ใบแจ้งหนี้");
-  await click(p, "#results li.row >> nth=0", { dx: 0.3, after: 600 });
-  await mark(p, "ocr", ".ocr-box");
+  await p.waitForTimeout(500);
+  await mark(p, "row3", "#results li.row >> nth=0");
+  await click(p, "#results li.row >> nth=0", { dx: 0.3, after: 900 });
+  await mark(p, "detail3", "#detail");
+  await mark(p, "pdfIcon", "#detail .head .tile");
+  await mark(p, "ocrBtn", '.ocr-box button:has-text("อ่านด้วย OCR")');
   await click(p, '.ocr-box button:has-text("อ่านด้วย OCR")', { after: 200 });
+  await mark(p, "ocrRun", ".ocr-box");
   await p.waitForSelector('.ocr-box:has-text("อ่านได้")', { timeout: 60000 });
   await mark(p, "ocrDone", ".ocr-box");
-  await p.waitForTimeout(1300);
+  await p.waitForTimeout(1400);
   await mark(p, "ocrText", "#detail pre");
-  await p.waitForTimeout(1800);
+  await p.waitForTimeout(2200);
 
-  // 4 · narrow it down: type + date (the burst)
-  await mark(p, "type4", ".input.search");
+  // 4 · narrow it down: type + date
+  await mark(p, "box4", ".input.search");
   await typeIn(p, "#q", "ค่าเช่า");
-  await p.waitForTimeout(400);
+  await p.waitForTimeout(800);
   await mark(p, "chips", "#type-chips");
-  await click(p, '#type-chips .type-chip[data-type="excel"]', { after: 500, wait: 450 });
-  await mark(p, "date", "#date-btn");
-  await click(p, "#date-btn", { after: 450, wait: 450 });
-  await click(p, '#date-menu .menu-item:has-text("30 วันล่าสุด")', { after: 900, wait: 400 });
+  await mark(p, "excel", '#type-chips .type-chip[data-type="excel"]');
+  await click(p, '#type-chips .type-chip[data-type="excel"]', { after: 1200 });
+  await mark(p, "excelOn", "#results");
+  await mark(p, "dateBtn", "#date-btn");
+  await click(p, "#date-btn", { after: 700 });
+  await mark(p, "d30", '#date-menu .menu-item:has-text("30 วันล่าสุด")');
+  await click(p, '#date-menu .menu-item:has-text("30 วันล่าสุด")', { after: 1300 });
   await mark(p, "narrowed", "#results");
-  await p.waitForTimeout(900);
+  await p.waitForTimeout(1400);
 
   // 5 · add a folder, the mascot scans it
   await mark(p, "clear");
   await click(p, "#date-btn", { after: 300, wait: 350 });
   await click(p, '#date-menu .menu-item:has-text("ทุกช่วงเวลา")', { after: 300, wait: 350 });
+  await click(p, '#type-chips .type-chip[data-type=""]', { after: 300, wait: 350 });
   await p.locator("#q").fill("");
   await p.locator("#q").dispatchEvent("input");
-  await p.waitForTimeout(900);
+  await p.waitForTimeout(1200);
   await mark(p, "panel", "#folder-panel");
-  await click(p, '#folder-panel button:has-text("เพิ่มโฟลเดอร์")', { after: 900 });
-  await mark(p, "picker", "#modal");
-  await click(p, '.fb-dir:has-text("โปรเจกต์ลูกค้า")', { after: 700 });
+  await mark(p, "addBtn", '#folder-panel button:has-text("เพิ่มโฟลเดอร์")');
+  await click(p, '#folder-panel button:has-text("เพิ่มโฟลเดอร์")', { after: 1000 });
+  await mark(p, "picker", "#modal .panel");
+  await mark(p, "dir", '.fb-dir:has-text("โปรเจกต์ลูกค้า")');
+  await click(p, '.fb-dir:has-text("โปรเจกต์ลูกค้า")', { after: 900 });
+  await mark(p, "choose", "#modal button[type=submit]");
   await click(p, "#modal button[type=submit]", { after: 200 });
   await mark(p, "scanning", "#folder-panel");
-  await p.waitForTimeout(3200);
+  await p.waitForTimeout(3000);
   await mark(p, "scanned", "#folder-panel");
+  await mark(p, "newFolder", '#folder-panel .fp-folder:has-text("โปรเจกต์ลูกค้า")');
+  await mark(p, "panelMascot", "#folder-panel .fp-head .mascot");
   await p.waitForTimeout(2500);
   await mark(p, "end");
 }
@@ -184,5 +202,6 @@ async function story(p) {
   await ctx.close();
   fs.rmSync(profile, { recursive: true, force: true });
   fs.writeFileSync(TIMELINE, JSON.stringify({ width: W, height: H, marks }, null, 2));
+  fs.writeFileSync(path.join(__dirname, "film", "timeline.js"), `window.TL = ${JSON.stringify({ width: W, height: H, marks })};\n`);
   console.log(`recorded ${OUT}\n${marks.map((m) => `${m.t.toFixed(1)}s ${m.name}`).join("\n")}`);
 })();
