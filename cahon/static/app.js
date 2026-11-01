@@ -1022,29 +1022,10 @@ $("#viewer-code").addEventListener("click", (e) => {
 window.addEventListener("resize", () => { if (viewerOpen()) { viewer.lastKey = ""; scheduleRender(); } });
 
 // ------------------------------------------------------------------ guide
-/** "น้องคาหน" — CAHON's mascot: a round blob peeking through a magnifier
+/** "น้องคาหน" — CAHON's mascot: a little round blob holding a magnifier
     (static/brand/mascot.svg; classes drive the blink/bob/wave animations). */
 function mascotSvg() {
-  return '<svg viewBox="0 0 512 512" aria-hidden="true">' +
-    '<ellipse cx="262" cy="470" rx="150" ry="16" fill="#1d2b53" opacity=".12"/>' +
-    '<g stroke="#1d2b53" stroke-width="14" stroke-linecap="round" stroke-linejoin="round">' +
-    '<path d="M200 440q-6 22-34 22" fill="none"/><path d="M300 444q8 20 36 18" fill="none"/>' +
-    '<g transform="rotate(-6 262 300)"><path d="M112 302C112 170 190 108 270 108C362 108 424 178 424 300C424 402 352 452 266 452C176 452 112 402 112 302Z" fill="#7be0b5"/>' +
-    '<path d="M244 110C236 76 266 62 276 90" fill="none"/><path d="M114 300q-34 6-40 44" fill="none"/></g></g>' +
-    '<path d="M150 246C160 190 198 160 238 150" stroke="#fff" stroke-width="14" stroke-linecap="round" fill="none" opacity=".75"/>' +
-    '<g class="eye"><circle cx="186" cy="268" r="23" fill="#1d2b53"/><circle cx="193" cy="260" r="8" fill="#fff"/></g>' +
-    '<ellipse cx="166" cy="330" rx="21" ry="12" fill="#ff8fa3" opacity=".85"/>' +
-    '<path d="M214 352Q246 386 280 350" stroke="#1d2b53" stroke-width="13" stroke-linecap="round" fill="#7a1f3d"/>' +
-    '<path d="M236 366q8 26 26 14q8-8 0-18z" fill="#ff6b8b"/>' +
-    '<g class="handle">' +
-    '<path d="M350 366L440 456" stroke="#1d2b53" stroke-width="46" stroke-linecap="round"/>' +
-    '<path d="M350 366L440 456" stroke="#ff8a3d" stroke-width="26" stroke-linecap="round"/>' +
-    '<path d="M378 394l14 14" stroke="#ffd15c" stroke-width="8" stroke-linecap="round"/>' +
-    '<circle cx="314" cy="268" r="94" fill="#1d2b53"/><circle cx="314" cy="268" r="73" fill="#eaf6ff"/>' +
-    '<g class="eye"><circle cx="322" cy="274" r="51" fill="#1d2b53"/><circle cx="342" cy="252" r="17" fill="#fff"/><circle cx="304" cy="298" r="8" fill="#fff"/></g>' +
-    '<path d="M262 218a72 72 0 0 1 62-22" stroke="#fff" stroke-width="10" stroke-linecap="round" fill="none" opacity=".95"/>' +
-    '<path d="M352 352q34 6 28 40" stroke="#1d2b53" stroke-width="14" stroke-linecap="round" fill="#7be0b5"/>' +
-    '<circle cx="376" cy="388" r="15" fill="#7be0b5" stroke="#1d2b53" stroke-width="12"/></g></svg>';
+  return '<svg viewBox="0 0 64 64" aria-hidden="true"><ellipse cx="31" cy="59" rx="15" ry="1.8" fill="#000" opacity=".07"/><path d="M31 11.5q-1.2-4.6 3-5.6" stroke="#5cc39a" stroke-width="2.4" stroke-linecap="round" fill="none"/><path d="M9 37C9 21 19 11 31 11S53 21 53 37C53 50 44 56.5 31 56.5S9 50 9 37Z" fill="var(--mascot-body)"/><path d="M15.5 29c1.6-5.6 5.4-9.4 10.5-11" stroke="#fff" stroke-width="2.4" stroke-linecap="round" fill="none" opacity=".75"/><g class="eye"><ellipse cx="24" cy="35" rx="2.4" ry="3.1" fill="#262626"/><ellipse cx="38" cy="35" rx="2.4" ry="3.1" fill="#262626"/></g><ellipse cx="19.5" cy="40.8" rx="2.8" ry="1.6" fill="#ff8fa3" opacity=".5"/><ellipse cx="42.5" cy="40.8" rx="2.8" ry="1.6" fill="#ff8fa3" opacity=".5"/><path d="M28.5 40.5q2.5 2.6 5 0" stroke="#262626" stroke-width="2" stroke-linecap="round" fill="none"/><g class="handle"><circle cx="47.5" cy="46.5" r="6.8" fill="#fff" fill-opacity=".6" stroke="var(--mascot-ring)" stroke-width="3"/><path d="M52.4 51.4l5.4 5.4" stroke="var(--mascot-ring)" stroke-width="4" stroke-linecap="round"/></g></svg>';
 }
 document.querySelectorAll(".mascot").forEach((m) => { m.innerHTML = mascotSvg(); }); // static, trusted markup
 

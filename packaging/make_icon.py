@@ -1,7 +1,7 @@
 """App icon files (PNG, ICO, ICNS) from the CAHON icon artwork.
 
 packaging/icon-1024.png is cahon/static/brand/icon.svg rendered at 1024 px
-(the mascot "น้องคาหน" on a navy rounded square).
+(the mascot on a dark rounded square).
 """
 
 import sys
