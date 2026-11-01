@@ -352,3 +352,26 @@ def test_pages_may_only_talk_to_this_app(tmp_path):
         assert h["referrer-policy"] == "no-referrer"
     assert c.get("/docs").status_code == 404  # its page loads scripts from a CDN
     assert c.get("/openapi.json").status_code == 404
+
+
+def test_image_preview_only_for_raster_images(tmp_path):
+    from PIL import Image
+
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    Image.new("RGB", (40, 30), "red").save(docs / "pic.png")
+    (docs / "page.html").write_text("<script>alert(1)</script>")
+    (docs / "logo.svg").write_text("<svg xmlns='http://www.w3.org/2000/svg'><script>alert(1)</script></svg>")
+    c = TestClient(create_app(Config(data_dir=tmp_path / "data", folders=[str(docs)], allowed_hosts=["testserver"],
+                                     background_indexing=False)))
+    c.post("/api/scan/start")
+    for _ in range(100):
+        if not c.get("/api/status").json()["indexing"]["running"] and c.get("/api/status").json()["counts"]["file"] == 3:
+            break
+        time.sleep(0.1)
+    ids = {r["title"]: r["id"] for r in c.get("/api/search?q=&kind=file").json()["results"]}
+    r = c.get(f"/api/files/{ids['pic.png']}/preview")
+    assert r.status_code == 200 and r.headers["content-type"] == "image/png"
+    assert r.headers["content-disposition"] == "inline"
+    assert c.get(f"/api/files/{ids['page.html']}/preview").status_code == 415
+    assert c.get(f"/api/files/{ids['logo.svg']}/preview").status_code == 415

@@ -83,11 +83,14 @@ class ScanSettingsIn(BaseModel):
     auto: bool
     interval_minutes: int = Field(ge=1, le=24 * 60)
     ocr: bool = True
-    ocr_images: bool = False
+    ocr_images: bool = True
     ocr_max_pages: int = Field(default=100, ge=1, le=2000)
 
 
 # ----------------------------------------------------------------- helpers
+PREVIEW_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif",
+                 ".webp": "image/webp", ".bmp": "image/bmp"}
+
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
        "media-src 'self'; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; "
        "form-action 'self'; frame-ancestors 'none'")
@@ -531,6 +534,17 @@ def create_app(config: Config) -> FastAPI:
         except OSError as exc:  # no program to open it with (e.g. a server without a desktop)
             raise HTTPException(400, f"เปิดไฟล์ด้วยโปรแกรมของเครื่องไม่ได้ ({exc.strerror or exc}) — ใช้ \"ดูเนื้อหา\" หรือดาวน์โหลดแทน")
         return {"ok": True}
+
+    @app.get("/api/files/{item_id}/preview", dependencies=[Depends(require_auth)])
+    def preview_file(item_id: int):
+        """An image, shown inline in the detail panel. Only raster image types
+        browsers display (never SVG/HTML, which could carry scripts)."""
+        row = file_row(item_id)
+        media = PREVIEW_TYPES.get(Path(row["path"]).suffix.lower())
+        if media is None:
+            raise HTTPException(415, "no preview for this file type")
+        return FileResponse(row["path"], media_type=media,
+                            headers={"Content-Disposition": "inline", "Cache-Control": "private, max-age=300"})
 
     @app.get("/api/files/{item_id}/download", dependencies=[Depends(require_auth)])
     def download_file(item_id: int):
