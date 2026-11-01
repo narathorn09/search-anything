@@ -149,7 +149,7 @@ def test_scan_settings_api(tmp_path):
                                             background_indexing=False)))
     c = client()
     st = c.get("/api/status").json()
-    OCR = {"ocr": True, "ocr_images": False, "ocr_max_pages": 100}
+    OCR = {"ocr": True, "ocr_images": True, "ocr_max_pages": 100}
     assert st["indexing"]["settings"] == {"profile": "balanced", "auto": True, "interval_minutes": 5, **OCR}
     assert set(st["profiles"]) == {"eco", "balanced", "fast"}
     assert c.put("/api/scan/settings", json={"profile": "turbo", "auto": True, "interval_minutes": 5}).status_code == 422

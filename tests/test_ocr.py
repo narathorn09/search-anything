@@ -119,7 +119,7 @@ def test_ocr_can_be_turned_off_and_images_are_optional(tmp_path):
     db = Database(tmp_path / "s.db")
     ix = Indexer(db, [str(docs)], ScanSettings(ocr=False))
     assert ix.run().ocr_files == 0 and not db.search("WALRUS-123")
-    ix.update_settings(ScanSettings(ocr=True))
+    ix.update_settings(ScanSettings(ocr=True, ocr_images=False))
     assert ix.run().ocr_files == 1 and db.search("WALRUS-123") and not db.search("PELICAN-777")
     ix.update_settings(ScanSettings(ocr=True, ocr_images=True))
     assert ix.run().ocr_files == 1 and db.search("PELICAN-777")
@@ -166,3 +166,49 @@ def test_ocr_in_worker_process(tmp_path):
     stats = ProcessIndexer(db, [str(docs)]).run()
     assert stats.ocr_files == 1
     assert db.search("OTTER-5150")
+
+
+def test_keep_confident_drops_unsure_lines():
+    tsv = "\n".join([
+        "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext",
+        "4\t1\t1\t1\t1\t0\t0\t0\t0\t0\t-1\t",
+        "5\t1\t1\t1\t1\t1\t0\t0\t0\t0\t96\tใบเสร็จ",
+        "5\t1\t1\t1\t1\t2\t0\t0\t0\t0\t93\t12,500",
+        "4\t1\t1\t1\t2\t0\t0\t0\t0\t0\t-1\t",
+        "5\t1\t1\t1\t2\t1\t0\t0\t0\t0\t21\tSay",
+        "5\t1\t1\t1\t2\t2\t0\t0\t0\t0\t3\t|ri,",
+        "4\t1\t2\t1\t1\t0\t0\t0\t0\t0\t-1\t",
+        "5\t1\t2\t1\t1\t1\t0\t0\t0\t0\t91\t|",
+    ])
+    text = "ใบเสร็จ 12,500\nSay |ri,\n\n|\n"
+    assert ocr.keep_confident(text, tsv) == "ใบเสร็จ 12,500\n"
+    # Lines that do not match the TSV: keep everything rather than guess.
+    assert ocr.keep_confident("one\ntwo", tsv) == "one\ntwo"
+
+
+@needs_tesseract
+def test_images_are_read_by_default_and_photos_without_text_add_nothing(tmp_path):
+    import random
+
+    from PIL import Image, ImageDraw, ImageFilter, ImageFont
+
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    shot = Image.new("RGB", (1300, 300), "white")
+    ImageDraw.Draw(shot).text((40, 100), "SLIP TRANSFER 4,250 THB", font=ImageFont.load_default(size=56), fill="black")
+    shot.save(docs / "slip.jpg")
+    rng = random.Random(7)  # a busy picture with no writing (fabric/leaves)
+    pic = Image.new("L", (1600, 1200), 128)
+    draw = ImageDraw.Draw(pic)
+    for _ in range(4000):
+        x, y = rng.randrange(1600), rng.randrange(1200)
+        draw.rectangle((x, y, x + rng.randint(2, 14), y + rng.randint(2, 30)), fill=rng.choice([0, 255, 60, 200]))
+    pic.filter(ImageFilter.GaussianBlur(0.6)).save(docs / "texture.jpg")
+    db = Database(tmp_path / "s.db")
+    stats = Indexer(db, [str(docs)]).run()  # default settings
+    assert stats.ocr_files == 2
+    assert [r["title"] for r in db.search("TRANSFER")] == ["slip.jpg"]
+    texture = db.search("texture")[0]
+    body = db.get_item(texture["id"], 100000)["body"]
+    assert ocr.MARK not in body  # nothing confident enough: no OCR text at all
+    assert db.ocr_summary()["none"] == 1

@@ -104,7 +104,7 @@ class ScanSettings:
     auto: bool = True  # rescan in the background
     interval_minutes: int = 5
     ocr: bool = True  # read scanned PDFs with OCR (when Tesseract is installed)
-    ocr_images: bool = False  # also read images (jpg, png, tiff …) with OCR
+    ocr_images: bool = True  # also read images (jpg, png, tiff …) with OCR
     ocr_max_pages: int = OCR_DEFAULT_MAX_PAGES  # per file
 
     @classmethod

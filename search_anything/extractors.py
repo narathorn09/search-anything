@@ -59,7 +59,7 @@ SUPPORTED = {
     "ตาราง": "xlsx, xlsm, ods, csv, tsv",
     "สไลด์": "pptx, odp",
     "อื่นๆ": "eml (อีเมล), ipynb (Jupyter), zip (รายชื่อไฟล์ข้างใน)",
-    "ภาพสแกน (OCR)": "PDF ที่สแกนมา และรูปภาพ jpg, png, tiff (ตั้งค่าในหัวข้อ OCR) — ต้องมี Tesseract",
+    "ภาพสแกน (OCR)": "PDF ที่สแกนมา และข้อความในรูปภาพ jpg, png, gif, tiff (ตั้งค่าในหัวข้อ OCR) — ต้องมี Tesseract",
 }
 
 
