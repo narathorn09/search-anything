@@ -6,19 +6,18 @@
 #   --no-docker       always use Python/.venv
 #   --folder PATH     folder to search (repeatable; default: Documents, Desktop, Downloads)
 #   anything else is passed to the app
-# Environment: SA_PORT (default 8765).
+# Environment: CAHON_PORT (default 8765).
 $ErrorActionPreference = "Stop"
 Set-Location -LiteralPath $PSScriptRoot
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $env:PYTHONUTF8 = "1"
 
 function Say($text) { Write-Host ""; Write-Host $text -ForegroundColor Cyan }
-$Port = if ($env:SA_PORT) { $env:SA_PORT } else { "8765" }
+$Port = if ($env:CAHON_PORT) { $env:CAHON_PORT } else { "8765" }
 $Url = "http://localhost:$Port"
 $Name = "cahon"
 $Image = "cahon:local"
-$OldName = "search-anything"  # the container under the earlier name
-$Volume = "search-anything-data"  # earlier name kept: it holds your data
+$Volume = "cahon-data"
 
 $Use = "auto"
 $Folders = @()
@@ -119,7 +118,7 @@ function Start-Venv {
         Write-Host "Tip: to search scanned PDFs (OCR), install Tesseract from https://github.com/UB-Mannheim/tesseract/wiki (tick Thai under Additional language data), or run with Docker."
     }
     Say "Starting CAHON (Python)...   data: .\data   stop: close this window or Ctrl+C"
-    $runArgs = @("-m", "search_anything", "--port", $Port, "--open-browser")
+    $runArgs = @("-m", "cahon", "--port", $Port, "--open-browser")
     if ($Folders.Count -eq 0) { $runArgs += "--default-folders" } else { foreach ($f in $Folders) { $runArgs += @("--folder", $f) } }
     & $venvPy @($runArgs + $AppArgs)
     exit $LASTEXITCODE
@@ -160,13 +159,13 @@ function Start-Docker {
     }
 
     $ErrorActionPreference = "Continue"
-    docker rm -f $Name $OldName *> $null
+    docker rm -f $Name *> $null
     Say "Starting CAHON (Docker)...   data: Docker volume $Volume   stop: close this window or Ctrl+C"
     # Port published on 127.0.0.1 only: reachable from this computer, not the network.
     $runArgs = @("run", "-d", "--rm", "--init", "--name", $Name, "-p", "127.0.0.1:${Port}:8765",
         "-v", "${Volume}:/data",
-        "-e", "SA_MODE=local", "-e", "SA_HOST=0.0.0.0", "-e", "SA_IN_CONTAINER=1",
-        "-e", "SA_FOLDERS=$($inner -join ':')", "-e", "SA_PATH_MAP=$map") + $mounts + @($Image, "python", "-m", "search_anything") + $AppArgs
+        "-e", "CAHON_MODE=local", "-e", "CAHON_HOST=0.0.0.0", "-e", "CAHON_IN_CONTAINER=1",
+        "-e", "CAHON_FOLDERS=$($inner -join ':')", "-e", "CAHON_PATH_MAP=$map") + $mounts + @($Image, "python", "-m", "cahon") + $AppArgs
     docker @runArgs | Out-Null
     if ($LASTEXITCODE -ne 0) { Say "Could not start the container."; exit 1 }
     try {

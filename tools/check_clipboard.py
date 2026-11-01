@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from search_anything.desktop import copy_to_clipboard  # noqa: E402
+from cahon.desktop import copy_to_clipboard  # noqa: E402
 
 TEXT = "คัดลอก path: C:\\เอกสาร\\สัญญา.pdf ✓"
 

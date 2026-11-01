@@ -5,7 +5,7 @@ way chat apps do (where OCR struggles most).
     python tools/bench_ocr.py [seed] [folder]
 
 Prints word recall (share of the words in each picture that OCR found) for
-the app's reader (search_anything.ocr). Needs Tesseract with Thai, and the
+the app's reader (cahon.ocr). Needs Tesseract with Thai, and the
 internet once to fetch the Thai fonts. 1 Nov 2026, Tesseract 5.3, 4 cores:
 before 58.4% (shrunk) / 98.9% (clean); now 82.0% / 99.2%.
 """
@@ -133,8 +133,8 @@ print(len(new), "hard images")
 
 # ----------------------------------------------------------------- measure
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from search_anything import ocr  # noqa: E402
-from search_anything.extractors import normalize_thai  # noqa: E402
+from cahon import ocr  # noqa: E402
+from cahon.extractors import normalize_thai  # noqa: E402
 
 reader = ocr.Reader(ocr.engine())
 for label, tf in (("shrunk + JPEG", "truth_hard.json"), ("clean", "truth.json")):

@@ -30,7 +30,7 @@ docker push registry.company.com/cahon:1.0
 
 1. เปิดไฟล์ [`deploy/rancher.yaml`](../deploy/rancher.yaml) แก้จุดที่เขียนว่า `CHANGE`:
    - `image:` → image ที่ push ไว้ในขั้นที่ 0
-   - `SA_PASSWORD:` → รหัสผ่านสำหรับล็อกอินเข้าแอป
+   - `CAHON_PASSWORD:` → รหัสผ่านสำหรับล็อกอินเข้าแอป
    - `host:` → ชื่อเว็บที่จะให้คนเปิด เช่น `search.company.com`
    - `storageClassName:` → (ไม่ใส่ก็ได้ จะใช้ค่าเริ่มต้นของ cluster) **ห้ามใช้ NFS** ถามทีม IT ว่าใช้ตัวไหน เช่น `longhorn`
 2. ใน Rancher เข้า cluster → ปุ่ม **Import YAML** (มุมขวาบน)
@@ -44,7 +44,7 @@ docker push registry.company.com/cahon:1.0
 
 ### 1. สร้างที่เก็บข้อมูล (PVC)
 **Storage → PersistentVolumeClaims → Create**
-- Name: `search-anything-data`
+- Name: `cahon-data`
 - Source: *Use a Storage Class to provision a new Persistent Volume*
 - Storage Class: block storage ของ cluster (เช่น longhorn) — **ห้าม NFS** (ฐานข้อมูล SQLite บน NFS อาจเสียหายได้)
 - Request Storage: `10` GiB
@@ -53,7 +53,7 @@ docker push registry.company.com/cahon:1.0
 ### 2. เก็บรหัสผ่าน (Secret)
 **Storage → Secrets → Create → Opaque**
 - Name: `cahon-secret`
-- Key: `SA_PASSWORD` · Value: รหัสผ่านสำหรับล็อกอิน
+- Key: `CAHON_PASSWORD` · Value: รหัสผ่านสำหรับล็อกอิน
 
 ### 3. สร้างตัวแอป (Deployment)
 **Workloads → Deployments → Create**
@@ -64,11 +64,11 @@ docker push registry.company.com/cahon:1.0
 | Replicas | **1** (ต้องเป็น 1 เท่านั้น) |
 | Container Image | image จากขั้นที่ 0 |
 | Ports → Add Port | Name `http`, Private Container Port `8765`, TCP, Service Type **Cluster IP** |
-| Environment Variables → Add Variable | Type **Secret key**: Variable `SA_PASSWORD` ← secret `cahon-secret` key `SA_PASSWORD` |
-| Environment Variables → Add Variable | Type Key/Value: `SA_HTTPS_COOKIE` = `1` (ถ้าเข้าเว็บผ่าน HTTPS) |
+| Environment Variables → Add Variable | Type **Secret key**: Variable `CAHON_PASSWORD` ← secret `cahon-secret` key `CAHON_PASSWORD` |
+| Environment Variables → Add Variable | Type Key/Value: `CAHON_HTTPS_COOKIE` = `1` (ถ้าเข้าเว็บผ่าน HTTPS) |
 | Resources | CPU Reservation `250m`, CPU Limit `2000m`, Memory Reservation `512Mi`, **Memory Limit `1536Mi`** |
 | Health Check | Readiness และ Liveness: HTTP request, Path `/api/status`, Port `8765` |
-| Storage → Add Volume → Persistent Volume Claim | เลือก `search-anything-data`, Mount Point **`/data`** |
+| Storage → Add Volume → Persistent Volume Claim | เลือก `cahon-data`, Mount Point **`/data`** |
 | Pod → Security Context | **Filesystem Group: `10001`** (ถ้าไม่ตั้ง แอปจะเขียนลง volume ไม่ได้) |
 | Deployment → Scaling and Upgrade Policy | **Recreate** (*Kill ALL pods and then start new pods*) |
 
@@ -96,13 +96,13 @@ docker push registry.company.com/cahon:1.0
 | อาการ | สาเหตุ / วิธีแก้ |
 |---|---|
 | pod ขึ้น error `cannot write to the data folder /data` | ยังไม่ได้ตั้ง **Filesystem Group = 10001** (ข้อ 3) |
-| `server mode needs a login password` | ยังไม่ได้ผูก `SA_PASSWORD` จาก Secret (ข้อ 3) |
+| `server mode needs a login password` | ยังไม่ได้ผูก `CAHON_PASSWORD` จาก Secret (ข้อ 3) |
 | pod ใหม่ค้างที่ *ContainerCreating* ตอน redeploy | ยังเป็น Rolling update อยู่ ให้เปลี่ยนเป็น **Recreate** |
 | pod ถูก restart ด้วย *OOMKilled* | Memory Limit ต่ำไป ให้เพิ่มเป็นอย่างน้อย `1536Mi` |
 | อัปโหลดไฟล์ใหญ่แล้วขึ้น 413 | เพิ่ม annotation `proxy-body-size` ใน Ingress |
 
 ## อยากให้ค้นไฟล์จาก file server ของบริษัทด้วย
-mount โฟลเดอร์นั้นเข้า pod แบบ **read-only** (ตรงนี้ใช้ NFS ได้ เพราะแอปแค่อ่าน) เช่นที่ `/files` แล้วเพิ่ม Environment Variable `SA_FOLDERS` = `/files`
+mount โฟลเดอร์นั้นเข้า pod แบบ **read-only** (ตรงนี้ใช้ NFS ได้ เพราะแอปแค่อ่าน) เช่นที่ `/files` แล้วเพิ่ม Environment Variable `CAHON_FOLDERS` = `/files`
 
 ## แอปรู้ limit ของ pod เอง
 แอปอ่าน CPU/Memory limit ของ container แล้วปรับขีดจำกัดการสแกนให้อยู่ในงบของ pod เอง ดูได้ในหน้า ตั้งค่า → การสแกนไฟล์ ไม่ต้องตั้งเพิ่ม

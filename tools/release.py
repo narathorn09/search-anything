@@ -6,7 +6,7 @@
 Pushing the tag makes CI build the Windows installer and macOS disk images
 and publish them as GitHub release v1.1.0; installed apps then offer the
 update (Settings > เกี่ยวกับและอัปเดต). CI refuses tags whose commit is not on
-main or whose number differs from search_anything/__version__.
+main or whose number differs from cahon/__version__.
 """
 
 import re
@@ -15,7 +15,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-INIT = ROOT / "search_anything" / "__init__.py"
+INIT = ROOT / "cahon" / "__init__.py"
 
 
 def git(*args: str) -> str:

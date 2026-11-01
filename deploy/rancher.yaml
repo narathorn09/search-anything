@@ -3,14 +3,14 @@
 #
 # Change before importing (search for "CHANGE"):
 #   1. image          – your company registry
-#   2. SA_PASSWORD    – login password
+#   2. CAHON_PASSWORD    – login password
 #   3. host           – the address people will open
 #   4. storageClassName – block storage of your cluster (ask IT; NOT nfs)
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: search-anything-data   # earlier name kept: an existing volume keeps its data
+  name: cahon-data
 spec:
   accessModes: ["ReadWriteOnce"]
   # storageClassName: longhorn        # CHANGE (optional): leave out to use the cluster default
@@ -24,7 +24,7 @@ metadata:
   name: cahon-secret
 type: Opaque
 stringData:
-  SA_PASSWORD: "change-me-please"       # CHANGE: login password
+  CAHON_PASSWORD: "change-me-please"       # CHANGE: login password
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -51,10 +51,10 @@ spec:
             - name: http
               containerPort: 8765
           env:
-            - name: SA_PASSWORD
+            - name: CAHON_PASSWORD
               valueFrom:
-                secretKeyRef: { name: cahon-secret, key: SA_PASSWORD }
-            - name: SA_HTTPS_COOKIE     # the Ingress below serves HTTPS
+                secretKeyRef: { name: cahon-secret, key: CAHON_PASSWORD }
+            - name: CAHON_HTTPS_COOKIE     # the Ingress below serves HTTPS
               value: "1"
           resources:
             requests: { cpu: 250m, memory: 512Mi }
@@ -73,7 +73,7 @@ spec:
       volumes:
         - name: data
           persistentVolumeClaim:
-            claimName: search-anything-data
+            claimName: cahon-data
 ---
 apiVersion: v1
 kind: Service

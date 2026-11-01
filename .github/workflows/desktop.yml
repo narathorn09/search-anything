@@ -4,7 +4,7 @@ name: Desktop installers
 # silicon and Intel), with OCR (Tesseract + Thai) and the Rust readers inside,
 # then runs each built app once (tools/smoke_desktop.py).
 #
-# Releasing (the version is search_anything/__version__), either:
+# Releasing (the version is cahon/__version__), either:
 #   * push a tag vX.Y.Z that points at a commit on main
 #     (python tools/release.py X.Y.Z && git push origin main vX.Y.Z), or
 #   * Actions > Desktop installers > Run workflow on main with "release" ticked:
@@ -45,7 +45,7 @@ jobs:
           python-version: "3.12"
       - name: Version (and, for a release tag, check it)
         run: |
-          APP_VERSION=$(python -c "import re,pathlib;print(re.search(r'__version__ = \"([^\"]+)\"', pathlib.Path('search_anything/__init__.py').read_text()).group(1))")
+          APP_VERSION=$(python -c "import re,pathlib;print(re.search(r'__version__ = \"([^\"]+)\"', pathlib.Path('cahon/__init__.py').read_text()).group(1))")
           echo "APP_VERSION=$APP_VERSION" >> "$GITHUB_ENV"
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             [ "${GITHUB_REF_NAME#v}" = "$APP_VERSION" ] || { echo "tag $GITHUB_REF_NAME does not match __version__ $APP_VERSION"; exit 1; }
@@ -59,7 +59,7 @@ jobs:
           # which clashes with the one PyInstaller bundles (seen on Intel Macs).
           pip install --only-binary=cryptography -r requirements.txt pyinstaller pywebview
           pip install ./native
-          python -c "import sa_native; print('sa_native', sa_native.__version__)"
+          python -c "import cahon_native; print('cahon_native', cahon_native.__version__)"
       - name: Tesseract (OCR) with Thai
         shell: pwsh
         run: |
@@ -116,7 +116,7 @@ jobs:
           python-version: "3.12"
       - name: Version (and, for a release tag, check it)
         run: |
-          APP_VERSION=$(python -c "import re,pathlib;print(re.search(r'__version__ = \"([^\"]+)\"', pathlib.Path('search_anything/__init__.py').read_text()).group(1))")
+          APP_VERSION=$(python -c "import re,pathlib;print(re.search(r'__version__ = \"([^\"]+)\"', pathlib.Path('cahon/__init__.py').read_text()).group(1))")
           echo "APP_VERSION=$APP_VERSION" >> "$GITHUB_ENV"
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             [ "${GITHUB_REF_NAME#v}" = "$APP_VERSION" ] || { echo "tag $GITHUB_REF_NAME does not match __version__ $APP_VERSION"; exit 1; }
@@ -130,7 +130,7 @@ jobs:
           # which clashes with the one PyInstaller bundles (seen on Intel Macs).
           pip install --only-binary=cryptography -r requirements.txt pyinstaller pywebview
           pip install ./native
-          python -c "import sa_native; print('sa_native', sa_native.__version__)"
+          python -c "import cahon_native; print('cahon_native', cahon_native.__version__)"
       - name: Tesseract (OCR) with Thai, made self-contained
         run: |
           brew install tesseract dylibbundler
@@ -177,7 +177,7 @@ jobs:
           fetch-depth: 0
       - name: Check version, branch and tag
         run: |
-          VERSION=$(python3 -c "import re,pathlib;print(re.search(r'__version__ = \"([^\"]+)\"', pathlib.Path('search_anything/__init__.py').read_text()).group(1))")
+          VERSION=$(python3 -c "import re,pathlib;print(re.search(r'__version__ = \"([^\"]+)\"', pathlib.Path('cahon/__init__.py').read_text()).group(1))")
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           git fetch --no-tags origin main
           git merge-base --is-ancestor "$GITHUB_SHA" origin/main || { echo "releases are made from commits on main"; exit 1; }

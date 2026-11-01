@@ -7,8 +7,8 @@ import urllib.request
 import pytest
 from fastapi.testclient import TestClient
 
-from search_anything import __version__, updater
-from search_anything.app import Config, create_app
+from cahon import __version__, updater
+from cahon.app import Config, create_app
 
 
 def release(tag, assets=()):
@@ -52,7 +52,7 @@ def test_disabled_updater_never_fetches(tmp_path, monkeypatch):
         raise AssertionError("must not contact GitHub")
 
     assert updater.Updater(tmp_path, enabled=False, fetch=boom).check()["enabled"] is False
-    monkeypatch.setenv("SA_UPDATES", "0")
+    monkeypatch.setenv("CAHON_UPDATES", "0")
     assert updater.Updater(tmp_path, enabled=True, fetch=boom).check()["enabled"] is False
 
 

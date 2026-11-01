@@ -3,9 +3,9 @@ from pathlib import Path
 
 import pytest
 
-from search_anything import db as db_mod
-from search_anything.db import Database
-from search_anything.indexer import Indexer
+from cahon import db as db_mod
+from cahon.db import Database
+from cahon.indexer import Indexer
 
 
 @pytest.fixture

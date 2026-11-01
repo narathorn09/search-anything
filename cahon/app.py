@@ -174,7 +174,7 @@ def load_secret_key(data_dir: Path) -> str:
 # --------------------------------------------------------------------- app
 def create_app(config: Config) -> FastAPI:
     if config.mode == "server" and not config.password:
-        raise ValueError("server mode requires a login password (SA_PASSWORD)")
+        raise ValueError("server mode requires a login password (CAHON_PASSWORD)")
 
     config.data_dir.mkdir(parents=True, exist_ok=True)
     upload_dir = (config.data_dir / "uploads").resolve()
@@ -218,7 +218,7 @@ def create_app(config: Config) -> FastAPI:
     app.add_middleware(
         SessionMiddleware,
         secret_key=load_secret_key(config.data_dir),
-        session_cookie="sa_session",
+        session_cookie="cahon_session",
         max_age=7 * 24 * 3600,
         same_site="strict",
         https_only=config.https_only_cookie,

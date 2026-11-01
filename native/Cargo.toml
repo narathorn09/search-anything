@@ -1,13 +1,13 @@
 [package]
-name = "sa_native"
+name = "cahon_native"
 version = "0.1.0"
 edition = "2021"
-description = "Fast text extraction for Search Anything (xlsx, docx, pptx)"
+description = "Fast text extraction for CAHON (xlsx, docx, pptx)"
 license = "MIT"
 publish = false
 
 [lib]
-name = "sa_native"
+name = "cahon_native"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]

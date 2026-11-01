@@ -13,7 +13,7 @@ desktop.yml). This module:
   replaced (no write access), the disk image is opened for a manual drag.
 
 This is the only part of the app that uses the internet, only in the
-desktop app, and it can be switched off in Settings (or SA_UPDATES=0).
+desktop app, and it can be switched off in Settings (or CAHON_UPDATES=0).
 """
 
 from __future__ import annotations
@@ -38,8 +38,8 @@ from . import __version__
 
 log = logging.getLogger(__name__)
 
-# The repository is being renamed from search-anything to cahon. Try the new
-# name first, then the old one (GitHub also redirects renamed repositories).
+# Releases live in narathorn09/cahon. Until the repository is renamed from its
+# first name (search-anything) the releases are there: ask both, new name first.
 REPOS = ("narathorn09/cahon", "narathorn09/search-anything")
 LATEST_URL = f"https://api.github.com/repos/{REPOS[0]}/releases/latest"
 
@@ -80,7 +80,7 @@ def _get_json(url: str) -> dict:
 class Updater:
     def __init__(self, data_dir: Path, enabled: bool, fetch=_get_json):
         self.dir = data_dir / "updates"
-        self.enabled = enabled and os.environ.get("SA_UPDATES", "1") != "0"
+        self.enabled = enabled and os.environ.get("CAHON_UPDATES", "1") != "0"
         self.fetch = fetch
         self.settings_file = data_dir / "update-settings.json"
         self.auto = self._load().get("auto", True)
@@ -234,7 +234,7 @@ def launch_installer(path: Path) -> None:
 
 
 def current_app_bundle() -> Path | None:
-    """…/CAHON.app (or the older …/Search Anything.app) of the running app."""
+    """…/CAHON.app of the running app (sys.executable is in Contents/MacOS)."""
     exe = Path(sys.executable).resolve()
     for parent in exe.parents:
         if parent.suffix == ".app":
@@ -247,10 +247,10 @@ def _install_macos(dmg: Path) -> None:
     if app is None or not os.access(app.parent, os.W_OK):
         subprocess.Popen(["open", str(dmg)])  # no write access: let the user drag it in
         return
-    script = Path(tempfile.mkdtemp(prefix="sa-update-")) / "update.sh"
+    script = Path(tempfile.mkdtemp(prefix="cahon-update-")) / "update.sh"
     script.write_text(f"""#!/bin/sh
 # Wait for the app to quit, swap in the new version, reopen it. The new
-# bundle keeps its own name (e.g. Search Anything.app -> CAHON.app).
+# bundle keeps the name it has in the disk image.
 while kill -0 {os.getpid()} 2>/dev/null; do sleep 0.5; done
 MNT=$(mktemp -d)
 hdiutil attach -nobrowse -readonly -mountpoint "$MNT" {shlex_quote(dmg)} >/dev/null || exit 1

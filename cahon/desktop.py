@@ -4,8 +4,7 @@
   WebKit on macOS). If that is not possible it opens the default browser.
 * Data lives in the user's app-data folder, not next to the program:
   Windows %LOCALAPPDATA%\\CAHON, macOS ~/Library/Application Support/CAHON,
-  Linux ~/.local/share/cahon. (Folders of the earlier name, Search Anything,
-  are moved there on first start.)
+  Linux ~/.local/share/cahon.
 * Only one copy runs: starting it again just shows the running one.
 * Local mode only (no login), listening on 127.0.0.1.
 * In the installed app, Tesseract (OCR) ships inside the bundle.
@@ -26,55 +25,17 @@ from pathlib import Path
 
 APP_NAME = "CAHON"
 PREFERRED_PORT = 8765
-log = logging.getLogger("search_anything.desktop")
-
-
-def _data_dirs() -> tuple[Path, Path]:
-    """(folder for CAHON, folder the app used under its earlier name)."""
-    if sys.platform.startswith("win"):
-        base = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
-        return base / "CAHON", base / "SearchAnything"
-    if sys.platform == "darwin":
-        base = Path.home() / "Library" / "Application Support"
-        return base / "CAHON", base / "Search Anything"
-    base = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share")
-    return base / "cahon", base / "search-anything"
+log = logging.getLogger("cahon.desktop")
 
 
 def data_dir() -> Path:
-    """The app's data folder. Data of the earlier name (v1.0.0, "Search
-    Anything") is moved here once, so notes, passwords and the index stay."""
-    if os.environ.get("SA_DATA_DIR"):
-        return Path(os.environ["SA_DATA_DIR"]).expanduser()
-    new, old = _data_dirs()
-    if not new.exists() and old.is_dir():
-        try:
-            old.rename(new)
-        except OSError as exc:  # in use or not allowed: keep using it where it is
-            logging.getLogger(__name__).warning("could not move %s to %s: %s", old, new, exc)
-            return old
-    return new
-
-
-def remove_old_windows_install() -> None:
-    """Windows: the v1.0.0 installer put the app in ...\\Programs\\Search Anything.
-    Once CAHON runs from its own folder, remove that one and its shortcuts."""
-    if not (sys.platform.startswith("win") and getattr(sys, "frozen", False)):
-        return
-    import shutil
-
-    base = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
-    old = base / "Programs" / "Search Anything"
-    here = Path(sys.executable).resolve().parent
-    if old.is_dir() and old.resolve() != here:
-        shutil.rmtree(old, ignore_errors=True)
-    appdata = Path(os.environ.get("APPDATA") or Path.home() / "AppData" / "Roaming")
-    shutil.rmtree(appdata / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Search Anything", ignore_errors=True)
-    for desktop in (Path.home() / "Desktop", Path(os.environ.get("USERPROFILE", "")) / "OneDrive" / "Desktop"):
-        try:
-            (desktop / "Search Anything.lnk").unlink()
-        except OSError:
-            pass
+    if os.environ.get("CAHON_DATA_DIR"):
+        return Path(os.environ["CAHON_DATA_DIR"]).expanduser()
+    if sys.platform.startswith("win"):
+        return Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local") / "CAHON"
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "CAHON"
+    return Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share") / "cahon"
 
 
 def bundle_dir() -> Path | None:
@@ -85,11 +46,11 @@ def bundle_dir() -> Path | None:
 def use_bundled_tesseract() -> None:
     """Point OCR at the Tesseract inside the installed app, if it is there."""
     base = bundle_dir()
-    if base is None or os.environ.get("SA_TESSERACT"):
+    if base is None or os.environ.get("CAHON_TESSERACT"):
         return
     exe = base / "tesseract" / ("tesseract.exe" if sys.platform.startswith("win") else "tesseract")
     if exe.is_file():
-        os.environ["SA_TESSERACT"] = str(exe)
+        os.environ["CAHON_TESSERACT"] = str(exe)
         os.environ["TESSDATA_PREFIX"] = str(base / "tesseract" / "tessdata")
 
 
@@ -222,7 +183,7 @@ def _quit(server) -> None:
 
 def show_window(url: str) -> bool:
     """Run the app window until it is closed. False if no window could be shown."""
-    if os.environ.get("SA_NO_WINDOW") == "1":  # tests / CI: browser mode
+    if os.environ.get("CAHON_NO_WINDOW") == "1":  # tests / CI: browser mode
         return False
     try:
         import webview
@@ -270,7 +231,6 @@ def main() -> None:
     from .updater import cleanup_downloads
 
     cleanup_downloads(folder)  # installers of versions already installed
-    remove_old_windows_install()
 
     log.info("CAHON %s (desktop) at %s, data in %s; Rust readers: %s; OCR: %s",
              __version__, url, folder, NATIVE, engine().info())

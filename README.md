@@ -17,15 +17,13 @@
 
 ## ติดตั้งแบบแอป (Windows / Mac)
 
-ดาวน์โหลดตัวติดตั้งจากหน้า [Releases](https://github.com/narathorn09/search-anything/releases/latest):
+ดาวน์โหลดตัวติดตั้งจากหน้า [Releases](https://github.com/narathorn09/cahon/releases/latest):
 
 | เครื่อง | ไฟล์ | ติดตั้ง |
 |---|---|---|
 | **Windows 10/11** | `CAHON-Setup-X.Y.Z.exe` | ดับเบิลคลิก แล้วกด Next (ติดตั้งให้ผู้ใช้คนเดียว ไม่ต้องใช้สิทธิ์ admin) |
 | **Mac ชิป Apple (M1 ขึ้นไป)** | `CAHON-X.Y.Z-macos-arm64.dmg` | เปิด แล้วลาก CAHON ไปใส่ Applications |
 | **Mac ชิป Intel** | `CAHON-X.Y.Z-macos-x86_64.dmg` | เหมือนกัน |
-
-เคยใช้ชื่อเดิม (Search Anything v1.0.0) อยู่: ติดตั้ง CAHON ทับได้เลย หรือกดอัปเดตในแอป ข้อมูลเดิม (โน้ต รหัสผ่าน ดัชนี) ย้ายมาโฟลเดอร์ใหม่ให้เอง และโปรแกรม/ทางลัดชื่อเดิมถูกลบให้
 
 แอปเปิดเป็นหน้าต่างของตัวเอง มี OCR ภาษาไทย/อังกฤษ และตัวอ่านไฟล์ภาษา Rust ในตัว ไม่ต้องลง Python, Docker หรือ Tesseract เพิ่ม ครั้งแรกจะสแกน Documents, Desktop และ Downloads ให้เอง (เปลี่ยนได้ในตั้งค่า) ข้อมูลเก็บไว้ที่ `%LOCALAPPDATA%\CAHON` (Windows) หรือ `~/Library/Application Support/CAHON` (Mac) ถอนการติดตั้งแล้วข้อมูลยังอยู่
 
@@ -40,7 +38,7 @@
 
 ### ออกเวอร์ชันใหม่ (สำหรับผู้ดูแลโปรเจกต์)
 
-เวอร์ชันอยู่ที่ `search_anything/__init__.py` ทำบน `main`:
+เวอร์ชันอยู่ที่ `cahon/__init__.py` ทำบน `main`:
 
 ```bash
 python tools/release.py 1.1.0
@@ -50,7 +48,7 @@ python tools/release.py 1.1.0
 git push origin main v1.1.0
 ```
 
-หรือไม่ต้องใช้ git tag: แก้เลขเวอร์ชันใน `search_anything/__init__.py` บน `main` แล้วไปที่ **Actions → Desktop installers → Run workflow** เลือก branch `main` ติ๊ก **release** แล้วกด Run (CI จะสร้าง tag `vX.Y.Z` ให้เอง)
+หรือไม่ต้องใช้ git tag: แก้เลขเวอร์ชันใน `cahon/__init__.py` บน `main` แล้วไปที่ **Actions → Desktop installers → Run workflow** เลือก branch `main` ติ๊ก **release** แล้วกด Run (CI จะสร้าง tag `vX.Y.Z` ให้เอง)
 
 GitHub Actions (`.github/workflows/desktop.yml`) จะ build ตัวติดตั้ง Windows และ Mac (ทั้งสองชิป) ทดสอบเปิดแอปจริงบนแต่ละเครื่อง (ค้นคำไทยในไฟล์ .doc/.xls/.ppt และ OCR) แล้วสร้าง Release `v1.1.0` พร้อมไฟล์ แอปที่ติดตั้งไว้จะเห็นเวอร์ชันใหม่ภายในหนึ่งวัน (หรือกด "ตรวจเดี๋ยวนี้") Release จะออกหลังตัวติดตั้งทั้ง 3 แบบ build และผ่านการทดสอบแล้วเท่านั้น CI ไม่ปล่อย Release ถ้า tag ไม่ตรงกับเวอร์ชันในโค้ด commit ไม่ได้อยู่ใน `main` หรือเวอร์ชันนั้นเคยปล่อยไปแล้ว ทุก push เข้า `main`/`dev` ก็ build ตัวติดตั้งให้ดาวน์โหลดจากหน้า Actions (artifacts) ได้เพื่อทดสอบก่อนปล่อย
 
@@ -69,7 +67,7 @@ GitHub Actions (`.github/workflows/desktop.yml`) จะ build ตัวติด
    - build image ครั้งแรกใช้เวลาไม่กี่นาที ครั้งต่อไปเร็ว ถ้า build ไม่ได้ (เช่นไม่มีเน็ต) จะใช้ image ที่เคย build ไว้
    - โฟลเดอร์ที่ค้นหาถูก mount แบบ **อ่านอย่างเดียว** แอปแก้หรือลบไฟล์ของคุณไม่ได้ แต่ในแอปยังแสดง path จริงของเครื่อง
    - เปิดพอร์ตเฉพาะ `127.0.0.1` เข้าได้จากเครื่องนี้เท่านั้น
-   - ข้อมูลเก็บใน Docker volume `search-anything-data`
+   - ข้อมูลเก็บใน Docker volume `cahon-data`
    - ปุ่ม "เปิดไฟล์" จะเป็น "ดาวน์โหลด" แทน เพราะในคอนเทนเนอร์ไม่มีโปรแกรมให้เปิดไฟล์
 2. **ถ้าไม่มี Docker** จะใช้ Python
    - หาหรือติดตั้ง Python 3.10 ขึ้นไปให้ (Mac ใช้ Homebrew, Windows ใช้ winget)
@@ -85,7 +83,7 @@ GitHub Actions (`.github/workflows/desktop.yml`) จะ build ตัวติด
 | `--docker` | บังคับใช้ Docker |
 | `--no-docker` | บังคับใช้ Python |
 | `--folder PATH` | กำหนดโฟลเดอร์ที่ค้น (ใส่ซ้ำได้หลายโฟลเดอร์) |
-| ตัวแปร `SA_PORT` | เปลี่ยนพอร์ต (ค่าเริ่มต้น 8765) |
+| ตัวแปร `CAHON_PORT` | เปลี่ยนพอร์ต (ค่าเริ่มต้น 8765) |
 
 ตัวอย่าง:
 
@@ -105,17 +103,17 @@ start.bat --no-docker --folder D:\Work
 
 กดปุ่ม **?** ข้างช่องค้นหา (หรือกดปุ่ม `?` บนคีย์บอร์ด) จะเจอ "น้องค้น" พร้อมการ์ดอธิบายทุกเมนูและวิดีโอสั้นของแต่ละเมนู ปุ่ม **เริ่มทัวร์ 1 นาที** จะพาชี้ทีละจุดบนหน้าจอจริง ครั้งแรกที่เปิดแอประบบจะชวนดูทัวร์ (กดข้ามได้)
 
-วิดีโอการใช้งานแต่ละเมนู (ไฟล์ MP4 อยู่ใน `search_anything/static/guide/`):
-[ค้นหา](search_anything/static/guide/search.mp4) ·
-[เพิ่มข้อมูล](search_anything/static/guide/add.mp4) ·
-[อัปโหลด & ลากวาง](search_anything/static/guide/upload.mp4) ·
-[เลือกประเภท](search_anything/static/guide/filters.mp4) ·
-[รายละเอียด](search_anything/static/guide/detail.mp4) ·
-[ดูเนื้อหา & ไปบรรทัด](search_anything/static/guide/viewer.mp4) ·
-[เรียงลำดับ](search_anything/static/guide/sort.mp4) ·
-[ตู้รหัสผ่าน](search_anything/static/guide/vault.mp4) ·
-[การสแกนไฟล์](search_anything/static/guide/scan.mp4) ·
-[ปรับหน้าตา](search_anything/static/guide/settings.mp4)
+วิดีโอการใช้งานแต่ละเมนู (ไฟล์ MP4 อยู่ใน `cahon/static/guide/`):
+[ค้นหา](cahon/static/guide/search.mp4) ·
+[เพิ่มข้อมูล](cahon/static/guide/add.mp4) ·
+[อัปโหลด & ลากวาง](cahon/static/guide/upload.mp4) ·
+[เลือกประเภท](cahon/static/guide/filters.mp4) ·
+[รายละเอียด](cahon/static/guide/detail.mp4) ·
+[ดูเนื้อหา & ไปบรรทัด](cahon/static/guide/viewer.mp4) ·
+[เรียงลำดับ](cahon/static/guide/sort.mp4) ·
+[ตู้รหัสผ่าน](cahon/static/guide/vault.mp4) ·
+[การสแกนไฟล์](cahon/static/guide/scan.mp4) ·
+[ปรับหน้าตา](cahon/static/guide/settings.mp4)
 
 ถ้าหน้าตาแอปเปลี่ยน อัดวิดีโอใหม่ได้ด้วย `tools/record-guide-videos.js` (ดู [tools/README.md](tools/README.md))
 
@@ -132,7 +130,7 @@ start.bat --no-docker --folder D:\Work
 
 หลังอัปเดตเป็นเวอร์ชันนี้ ระบบจะอ่านไฟล์เดิมใหม่หนึ่งรอบเองเพื่อดึงเนื้อหาชนิดที่เพิ่งรองรับ
 
-**ไฟล์ Office รุ่นเก่า (97-2003)** (`search_anything/legacy.py`, และ `native/src/legacy.rs` ที่เร็วกว่า 5-12 เท่า):
+**ไฟล์ Office รุ่นเก่า (97-2003)** (`cahon/legacy.py`, และ `native/src/legacy.rs` ที่เร็วกว่า 5-12 เท่า):
 - **.doc / .dot**: ข้อความทั้งเอกสาร รวมเชิงอรรถ หัว/ท้ายกระดาษ และกล่องข้อความ ตัดโค้ดของ field ออก (ลิงก์แสดงข้อความ ไม่ใช่ `HYPERLINK ...`) และแยกเซลล์ตารางด้วยแท็บ
 - **.xls / .xlt**: เหมือน .xlsx คือชื่อชีต แล้วตามด้วยแถวที่มีข้อมูล ตัวเลขและวันที่แสดงแบบเดียวกัน
 - **.ppt / .pps / .pot**: ข้อความทุกสไลด์และโน้ต ข้ามข้อความแม่แบบของ master ("Click to edit Master title style")
@@ -163,7 +161,7 @@ brew install tesseract tesseract-lang
 sudo apt install tesseract-ocr tesseract-ocr-tha
 ```
 
-Windows: ติดตั้งจาก [UB Mannheim](https://github.com/UB-Mannheim/tesseract/wiki) แล้วติ๊ก **Thai** ใน Additional language data · ถ้าติดตั้งไว้ที่อื่น ตั้ง `SA_TESSERACT` เป็น path ของ `tesseract.exe`
+Windows: ติดตั้งจาก [UB Mannheim](https://github.com/UB-Mannheim/tesseract/wiki) แล้วติ๊ก **Thai** ใน Additional language data · ถ้าติดตั้งไว้ที่อื่น ตั้ง `CAHON_TESSERACT` เป็น path ของ `tesseract.exe`
 
 ## ดูเนื้อหาในไฟล์
 
@@ -193,7 +191,7 @@ pip install -r requirements.txt
 ## โหมด Local (ใช้บนเครื่องตัวเอง)
 
 ```bash
-python -m search_anything --folder ~/Documents --folder ~/Desktop
+python -m cahon --folder ~/Documents --folder ~/Desktop
 ```
 
 แล้วเปิด http://localhost:8765
@@ -205,10 +203,10 @@ python -m search_anything --folder ~/Documents --folder ~/Desktop
 ## โหมด Server (เข้าจากที่ไหนก็ได้)
 
 ```bash
-SA_PASSWORD='รหัสผ่านสำหรับล็อกอิน' python -m search_anything --mode server --folder /srv/files
+CAHON_PASSWORD='รหัสผ่านสำหรับล็อกอิน' python -m cahon --mode server --folder /srv/files
 ```
 
-- ต้องล็อกอินด้วย `SA_PASSWORD` ก่อนใช้งาน (ระบบนี้ออกแบบให้ใช้คนเดียว)
+- ต้องล็อกอินด้วย `CAHON_PASSWORD` ก่อนใช้งาน (ระบบนี้ออกแบบให้ใช้คนเดียว)
 - ไฟล์ที่อัปโหลดเก็บใน `data/uploads/` (ทั้งสองโหมด) และลบได้จากหน้าเว็บ ส่วนไฟล์ในโฟลเดอร์ของคุณเองจะไม่มีปุ่มลบ
 - ไฟล์ที่ค้นเจอจะ **ดาวน์โหลด** แทนการเปิดในเครื่อง
 - ถ้าเปิดให้เข้าจากอินเทอร์เน็ต ควรวางไว้หลัง HTTPS (เช่น Caddy, nginx, Cloudflare Tunnel) และใส่ `--https-cookie`
@@ -217,11 +215,11 @@ SA_PASSWORD='รหัสผ่านสำหรับล็อกอิน' py
 ## Docker / Kubernetes / Rancher
 
 ```bash
-docker build -t search-anything .
+docker build -t cahon .
 ```
 
 ```bash
-docker run -d -p 8765:8765 -e SA_PASSWORD='รหัสผ่าน' -v search-anything-data:/data search-anything
+docker run -d -p 8765:8765 -e CAHON_PASSWORD='รหัสผ่าน' -v cahon-data:/data cahon
 ```
 
 ข้อมูลทั้งหมดอยู่ที่ `/data` **ต้องผูก volume ถาวรไว้เสมอ** ไม่อย่างนั้นข้อมูลจะหายเมื่อสร้าง container หรือ pod ใหม่ ส่วน Rancher ดูคู่มือทีละขั้นได้ที่ [docs/deploy-rancher.md](docs/deploy-rancher.md) หรือใช้ไฟล์ [deploy/rancher.yaml](deploy/rancher.yaml) กับปุ่ม Import YAML
@@ -230,19 +228,19 @@ docker run -d -p 8765:8765 -e SA_PASSWORD='รหัสผ่าน' -v search-a
 
 | ตัวเลือก | ตัวแปร environment | ค่าเริ่มต้น | ความหมาย |
 |---|---|---|---|
-| `--mode` | `SA_MODE` | `local` | `local` หรือ `server` |
-| `--host` | `SA_HOST` | `127.0.0.1` (local) / `0.0.0.0` (server) | address ที่รับการเชื่อมต่อ |
-| `--port` | `SA_PORT` | `8765` | พอร์ต |
-| `--data-dir` | `SA_DATA_DIR` | `data` | ที่เก็บฐานข้อมูลและไฟล์อัปโหลด |
-| `--folder` (ใส่ซ้ำได้) | `SA_FOLDERS` (คั่นด้วย `:` หรือ `;` บน Windows) | – | โฟลเดอร์ที่จะสแกน |
-| `--reindex-interval` | `SA_REINDEX_INTERVAL` | `300` | ความถี่สแกนอัตโนมัติเริ่มต้น (วินาที) ถ้ายังไม่ได้ตั้งในหน้าตั้งค่า |
-| `--auto-lock` | `SA_AUTO_LOCK` | `900` | ล็อกตู้รหัสผ่านหลังไม่ได้ใช้กี่วินาที |
-| `--allowed-host` | `SA_ALLOWED_HOSTS` (คั่นด้วย `,`) | `*` (server) | ชื่อโดเมนที่อนุญาต |
-| `--https-cookie` | `SA_HTTPS_COOKIE=1` | ปิด | ส่ง cookie ผ่าน HTTPS เท่านั้น |
-| `--max-upload-mb` | `SA_MAX_UPLOAD_MB` | `200` | ขนาดไฟล์อัปโหลดสูงสุดต่อไฟล์ (MB) |
-| – | `SA_PASSWORD` | – | รหัสผ่านล็อกอิน (จำเป็นในโหมด server) |
-| – | `SA_TESSERACT` | หาเอง (PATH, Homebrew, `C:\Program Files\Tesseract-OCR`) | path ของโปรแกรม `tesseract` สำหรับ OCR |
-| – | `SA_NATIVE=0` | เปิด | ปิดตัวอ่าน Rust (ใช้ตัวอ่าน Python แทน) |
+| `--mode` | `CAHON_MODE` | `local` | `local` หรือ `server` |
+| `--host` | `CAHON_HOST` | `127.0.0.1` (local) / `0.0.0.0` (server) | address ที่รับการเชื่อมต่อ |
+| `--port` | `CAHON_PORT` | `8765` | พอร์ต |
+| `--data-dir` | `CAHON_DATA_DIR` | `data` | ที่เก็บฐานข้อมูลและไฟล์อัปโหลด |
+| `--folder` (ใส่ซ้ำได้) | `CAHON_FOLDERS` (คั่นด้วย `:` หรือ `;` บน Windows) | – | โฟลเดอร์ที่จะสแกน |
+| `--reindex-interval` | `CAHON_REINDEX_INTERVAL` | `300` | ความถี่สแกนอัตโนมัติเริ่มต้น (วินาที) ถ้ายังไม่ได้ตั้งในหน้าตั้งค่า |
+| `--auto-lock` | `CAHON_AUTO_LOCK` | `900` | ล็อกตู้รหัสผ่านหลังไม่ได้ใช้กี่วินาที |
+| `--allowed-host` | `CAHON_ALLOWED_HOSTS` (คั่นด้วย `,`) | `*` (server) | ชื่อโดเมนที่อนุญาต |
+| `--https-cookie` | `CAHON_HTTPS_COOKIE=1` | ปิด | ส่ง cookie ผ่าน HTTPS เท่านั้น |
+| `--max-upload-mb` | `CAHON_MAX_UPLOAD_MB` | `200` | ขนาดไฟล์อัปโหลดสูงสุดต่อไฟล์ (MB) |
+| – | `CAHON_PASSWORD` | – | รหัสผ่านล็อกอิน (จำเป็นในโหมด server) |
+| – | `CAHON_TESSERACT` | หาเอง (PATH, Homebrew, `C:\Program Files\Tesseract-OCR`) | path ของโปรแกรม `tesseract` สำหรับ OCR |
+| – | `CAHON_NATIVE=0` | เปิด | ปิดตัวอ่าน Rust (ใช้ตัวอ่าน Python แทน) |
 
 ## คีย์ลัด
 
@@ -303,7 +301,7 @@ docker run -d -p 8765:8765 -e SA_PASSWORD='รหัสผ่าน' -v search-a
 - **รูปทรง:** มุมโค้ง 6 / 12 / 16 px (ปรับได้) ปุ่มเลือกแบบแคปซูล โหมด "มีกรอบ" ใช้กรอบหนา 8 px มุม 32 px
 - **Motion:** ผลลัพธ์ค่อยๆ ปรากฏแบบเบลอ→ชัดพร้อมเลื่อนขึ้นทีละรายการ, เมนูซ้ายตัวใหญ่ขยายเมื่อเลือก, ปุ่มยุบ 0.98 เมื่อกด (easing `cubic-bezier(.22,1,.36,1)`) และปิด animation อัตโนมัติถ้าเครื่องตั้ง reduce motion
 - **ฟอนต์:** Google Sans ตัวเดียวกับ fastwork (ทั้งละตินและไทย) แนบมาในแอปที่ `static/fonts/` ใช้ได้แม้ออฟไลน์ ฟอนต์นี้ใช้สัญญาอนุญาต SIL Open Font License (ดู `static/fonts/OFL.txt`)
-- ค่าทั้งหมดเป็น CSS variables อยู่ต้นไฟล์ `search_anything/static/style.css` แก้ที่เดียวเปลี่ยนทั้งแอป
+- ค่าทั้งหมดเป็น CSS variables อยู่ต้นไฟล์ `cahon/static/style.css` แก้ที่เดียวเปลี่ยนทั้งแอป
 
 ## ผลลัพธ์จำนวนมาก
 
@@ -372,7 +370,7 @@ docker run -d -p 8765:8765 -e SA_PASSWORD='รหัสผ่าน' -v search-a
 pip install ./native
 ```
 
-ปิดตัวอ่าน Rust ชั่วคราว (เช่น เพื่อเทียบผล): ตั้ง `SA_NATIVE=0`
+ปิดตัวอ่าน Rust ชั่วคราว (เช่น เพื่อเทียบผล): ตั้ง `CAHON_NATIVE=0`
 
 ## ความปลอดภัย
 
@@ -386,7 +384,7 @@ pip install ./native
 
 แอปนี้ไม่ส่งเนื้อหาไฟล์ โน้ต รหัสผ่าน คำค้น หรือข้อมูลใช้งานไปที่ไหนเลย ไม่มี telemetry ไม่มี analytics ตรวจแล้วทั้งโค้ดและ library (1 พ.ย. 2569)
 
-**ข้อยกเว้นเดียว: การตรวจหาเวอร์ชันใหม่ในแอปที่ติดตั้ง (Windows/Mac)** วันละครั้ง แอปขอข้อมูล release ล่าสุดจาก `api.github.com/repos/narathorn09/cahon/releases/latest` (หรือชื่อ repo เดิม `search-anything` ถ้ายังไม่ได้เปลี่ยนชื่อ) (ไม่ส่งข้อมูลอะไรของคุณไปด้วย มีแค่ User-Agent `CAHON/<เวอร์ชัน>`) และเมื่อกด "อัปเดตเลย" จะดาวน์โหลดตัวติดตั้งจาก GitHub ปิดได้ที่ **ตั้งค่า → เกี่ยวกับและอัปเดต** หรือตั้ง `SA_UPDATES=0` แบบรันจากโค้ด, Docker และโหมด server ไม่มีการตรวจนี้เลย
+**ข้อยกเว้นเดียว: การตรวจหาเวอร์ชันใหม่ในแอปที่ติดตั้ง (Windows/Mac)** วันละครั้ง แอปขอข้อมูล release ล่าสุดจาก `api.github.com/repos/narathorn09/cahon/releases/latest` (หรือชื่อ repo เดิม `search-anything` ถ้ายังไม่ได้เปลี่ยนชื่อ) (ไม่ส่งข้อมูลอะไรของคุณไปด้วย มีแค่ User-Agent `CAHON/<เวอร์ชัน>`) และเมื่อกด "อัปเดตเลย" จะดาวน์โหลดตัวติดตั้งจาก GitHub ปิดได้ที่ **ตั้งค่า → เกี่ยวกับและอัปเดต** หรือตั้ง `CAHON_UPDATES=0` แบบรันจากโค้ด, Docker และโหมด server ไม่มีการตรวจนี้เลย
 
 ผลการตรวจด้านล่างเป็นแบบรันจากโค้ด (ไม่มีการตรวจอัปเดต):
 
@@ -419,7 +417,7 @@ pip install ./native
 ตรวจซ้ำเองได้ (Linux):
 
 ```bash
-strace -f -e trace=connect -o net.log python -m search_anything --folder ~/Documents
+strace -f -e trace=connect -o net.log python -m cahon --folder ~/Documents
 ```
 
 ```bash
@@ -431,8 +429,8 @@ grep -E 'AF_INET6?' net.log
 ## โครงสร้าง
 
 ```
-search_anything/
-  __main__.py   # CLI: python -m search_anything
+cahon/
+  __main__.py   # CLI: python -m cahon
   app.py        # FastAPI routes, โหมด local/server, ล็อกอิน
   db.py         # SQLite + FTS5 trigram index และการค้นหา
   indexer.py    # สแกนโฟลเดอร์ (เดิน/เทียบ/อ่าน/เขียนดัชนี)

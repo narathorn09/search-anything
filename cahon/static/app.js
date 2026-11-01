@@ -1132,7 +1132,7 @@ function renderTourStep() {
 
 function endTour(finished) {
   $("#tour").classList.add("hidden");
-  try { localStorage.setItem("sa-tour-done", "1"); } catch { /* ignore */ }
+  try { localStorage.setItem("cahon-tour-done", "1"); } catch { /* ignore */ }
   if (finished && tour.steps.length > 1) {
     confetti();
     toast("เก่งมาก! พร้อมใช้งานแล้ว");
@@ -1165,12 +1165,12 @@ $("#guide").addEventListener("click", (e) => { if (e.target === $("#guide")) clo
 $("#welcome-yes").addEventListener("click", () => startTour());
 $("#welcome-no").addEventListener("click", () => {
   $("#welcome").classList.add("hidden");
-  try { localStorage.setItem("sa-tour-done", "1"); } catch { /* ignore */ }
+  try { localStorage.setItem("cahon-tour-done", "1"); } catch { /* ignore */ }
 });
 
 function maybeWelcome() {
   let done = false;
-  try { done = localStorage.getItem("sa-tour-done") === "1"; } catch { /* ignore */ }
+  try { done = localStorage.getItem("cahon-tour-done") === "1"; } catch { /* ignore */ }
   if (!done) setTimeout(() => { if (!tourOpen() && !guideOpen()) $("#welcome").classList.remove("hidden"); }, 1200);
 }
 
@@ -1500,7 +1500,7 @@ function pageReset() {
       pref("คืนค่าหน้าตาเริ่มต้น", "ล้างทุกอย่างในหมวด หน้าตา / การแสดงผล / การใช้งาน กลับเป็นค่าเริ่มต้น",
         btn("คืนค่าเริ่มต้น", () => applyPreset(DEFAULT_PREFS, "คืนค่าเริ่มต้นแล้ว"), "danger sm")),
       pref("ชวนดูทัวร์อีกครั้ง", "แสดงคำชวนทัวร์ครั้งถัดไปที่เปิดแอป", btn("รีเซ็ตทัวร์", () => {
-        try { localStorage.removeItem("sa-tour-done"); } catch { /* ignore */ }
+        try { localStorage.removeItem("cahon-tour-done"); } catch { /* ignore */ }
         toast("จะชวนดูทัวร์อีกครั้งเมื่อเปิดแอปครั้งถัดไป");
       }, "secondary sm")),
     ], "การตั้งค่าหน้าตาบันทึกไว้ใน browser นี้ ไม่กระทบโฟลเดอร์ ไฟล์ โน้ต หรือรหัสผ่าน"),

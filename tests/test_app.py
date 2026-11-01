@@ -4,9 +4,9 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from search_anything.app import Config, create_app
-from search_anything.db import Database
-from search_anything.indexer import Indexer
+from cahon.app import Config, create_app
+from cahon.db import Database
+from cahon.indexer import Indexer
 
 FAST_SCRYPT = 2**10  # keep tests fast; production uses 2**15
 
@@ -335,7 +335,7 @@ def test_container_local_mode_maps_paths_and_downloads(tmp_path):
 
 
 def test_path_map_parsing():
-    from search_anything.__main__ import _parse_path_map
+    from cahon.__main__ import _parse_path_map
     assert _parse_path_map("/host/Documents=/Users/me/Documents;/host/Work=D:\\Work;;bad") == [
         ("/host/Documents", "/Users/me/Documents"), ("/host/Work", "D:\\Work")]
 
@@ -378,7 +378,7 @@ def test_image_preview_only_for_raster_images(tmp_path):
 
 
 def test_clipboard_endpoint_desktop_only(tmp_path, monkeypatch):
-    from search_anything import desktop
+    from cahon import desktop
 
     copied = []
     monkeypatch.setattr(desktop, "copy_to_clipboard", copied.append)

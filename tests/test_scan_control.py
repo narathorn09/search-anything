@@ -5,11 +5,11 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from search_anything import indexer as indexer_mod
-from search_anything.app import Config, create_app
-from search_anything.db import Database
-from search_anything.indexer import Indexer, ScanSettings
-from search_anything.resources import PROFILES, Brake
+from cahon import indexer as indexer_mod
+from cahon.app import Config, create_app
+from cahon.db import Database
+from cahon.indexer import Indexer, ScanSettings
+from cahon.resources import PROFILES, Brake
 
 
 @pytest.fixture

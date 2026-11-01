@@ -15,11 +15,11 @@ from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, co
 
 ROOT = Path(SPECPATH).parent
 BUILD = ROOT / "packaging" / "build"
-VERSION = re.search(r'__version__ = "([^"]+)"', (ROOT / "search_anything" / "__init__.py").read_text()).group(1)
+VERSION = re.search(r'__version__ = "([^"]+)"', (ROOT / "cahon" / "__init__.py").read_text()).group(1)
 APP = "CAHON"
 ICON = BUILD / "icons" / ("icon.ico" if sys.platform.startswith("win") else "icon.icns")
 
-datas = [(str(ROOT / "search_anything" / "static"), "search_anything/static")]
+datas = [(str(ROOT / "cahon" / "static"), "cahon/static")]
 datas += collect_data_files("docx") + collect_data_files("pptx") + collect_data_files("openpyxl")
 datas += collect_data_files("pypdfium2") + collect_data_files("pypdfium2_raw")
 binaries = collect_dynamic_libs("pypdfium2_raw")
@@ -29,8 +29,8 @@ if tess.is_dir():
 
 hiddenimports = (
     collect_submodules("uvicorn")
-    + collect_submodules("search_anything")
-    + ["sa_native", "xlrd", "olefile", "multipart", "python_multipart", "webview"]
+    + collect_submodules("cahon")
+    + ["cahon_native", "xlrd", "olefile", "multipart", "python_multipart", "webview"]
 )
 
 a = Analysis(
@@ -60,8 +60,7 @@ if sys.platform == "darwin":
         coll,
         name=f"{APP}.app",
         icon=str(ICON) if ICON.exists() else None,
-        # Kept from the earlier name: macOS keeps the folder permissions it was given.
-        bundle_identifier="app.searchanything.desktop",
+        bundle_identifier="app.cahon.desktop",
         info_plist={
             "CFBundleName": APP,
             "CFBundleDisplayName": APP,
