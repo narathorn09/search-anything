@@ -389,9 +389,31 @@ async function loadMore() {
   }
 }
 
-const observer = new IntersectionObserver((entries) => {
-  if (entries.some((e) => e.isIntersecting)) loadMore();
-}, { rootMargin: "900px 0px" }); // start loading well before the end is visible
+/** The element that scrolls the result list: the list itself on wider screens
+    (app shell, the page stays still), the page on phones. */
+function resultsScroller() {
+  const ul = $("#results");
+  return ul && getComputedStyle(ul).overflowY !== "visible" ? ul : null;
+}
+
+let observerRoot;
+let observerImpl = null;
+const observer = {
+  // Start loading well before the end is visible, measured in the scrolling area.
+  observe(el) {
+    const root = resultsScroller();
+    if (!observerImpl || observerRoot !== root) {
+      observerImpl?.disconnect();
+      observerRoot = root;
+      observerImpl = new IntersectionObserver((entries) => {
+        if (entries.some((e) => e.isIntersecting)) loadMore();
+      }, { root, rootMargin: "900px 0px" });
+    }
+    observerImpl.observe(el);
+  },
+  unobserve(el) { if (el) observerImpl?.unobserve(el); },
+  disconnect() { observerImpl?.disconnect(); },
+};
 
 function resultMeta(r) {
   if (r.kind === "file") return [ext(r.title), fmtSize(r.size), fmtShortDate(r.mtime)];
@@ -460,6 +482,7 @@ function renderResults() {
   const ul = $("#results");
   observer.disconnect();
   ul.replaceChildren();
+  ul.scrollTop = 0;
   window.scrollTo({ top: 0 });
   const t = terms();
   updateCount();

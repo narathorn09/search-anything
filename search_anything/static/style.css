@@ -830,3 +830,23 @@ dialog .note { font-size: var(--text-supporting); color: var(--color-text-second
   display: grid;
 }
 .ctx-menu .menu-item { text-align: left; }
+
+/* =============================================================== app shell
+   Wider screens: the page itself never scrolls. The header, search box,
+   filters, details and footer stay put; only the result list (and the
+   details column, when it is long) scroll inside their own areas. */
+@media (min-width: 641px) {
+  html { height: 100%; overflow: hidden; scrollbar-gutter: auto; }
+  body { height: 100%; overflow: hidden; }
+  #main { height: 100vh; height: 100dvh; min-height: 0; overflow: hidden; grid-template-rows: auto minmax(0, 1fr) auto; }
+  :root[data-filters="rail"] #main { grid-template-rows: minmax(0, 1fr) auto; }
+  .frame { min-height: 0; overflow: hidden; }
+  .search-row { position: static; }
+  .body { min-height: 0; align-items: stretch; }
+  .list-col { min-height: 0; }
+  #results { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+    scrollbar-gutter: stable; padding-inline: 2px; margin-inline: -2px; }
+  :root[data-detail-mode="side"] #detail { position: static; max-height: none; min-height: 0; overflow-y: auto;
+    overscroll-behavior: contain; }
+  :root[data-filters="rail"] #filters { position: static; min-height: 0; overflow-y: auto; }
+}
