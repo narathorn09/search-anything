@@ -334,6 +334,48 @@ pip install ./native
 - ไฟล์ที่อัปโหลดอยู่ใน `data/uploads/`
 - โหมด local ตรวจ `Host` header เพื่อกันเว็บอื่นแอบเรียก API ผ่าน DNS rebinding
 
+## ความเป็นส่วนตัว: ข้อมูลไม่ออกจากเครื่อง
+
+แอปนี้ไม่ส่งเนื้อหาไฟล์ โน้ต รหัสผ่าน คำค้น หรือข้อมูลใช้งานไปที่ไหนเลย ไม่มี telemetry ไม่มี analytics ไม่เรียก API ภายนอก ตรวจแล้วทั้งโค้ดและ library (1 พ.ย. 2569):
+
+**ตรวจขณะรันจริง:** รันแอปด้วย `strace -f -e trace=connect,sendto,sendmsg,bind` ใช้ทุกฟีเจอร์:
+- สแกนไฟล์ Word, Excel, PowerPoint, PDF และไฟล์ข้อความ
+- OCR ทั้ง PDF และรูปภาพ
+- ค้นหา, ดูเนื้อหา, อัปโหลด, โน้ต, ลิงก์, ตู้รหัสผ่าน
+
+ผลจาก 14 process (แอป, ตัวสแกน, process ช่วยอ่าน PDF, Tesseract): การเชื่อมต่อเครือข่ายมีแค่ `bind 127.0.0.1:<port>` (เปิดรับเบราว์เซอร์ของเครื่องนี้) ไม่มีการเชื่อมต่อออกไปที่ IP ใดเลย ไม่มีการถาม DNS
+
+**ตรวจฝั่งเบราว์เซอร์:** เปิดหน้าเว็บจริงด้วย Chromium แล้วใช้ทุกเมนู เบราว์เซอร์ขอข้อมูลจากแอปนี้เท่านั้น ฟอนต์ รูป และวิดีโอคู่มืออยู่ในแอปทั้งหมด
+
+**สิ่งที่ล็อกไว้ในโค้ด:**
+- ทุกหน้าส่ง `Content-Security-Policy` ที่ให้เบราว์เซอร์โหลดและติดต่อได้เฉพาะแอปนี้ (`default-src 'self'`, `connect-src 'self'`) ต่อให้มีโค้ดผิดพลาด เบราว์เซอร์ก็จะบล็อก
+- `Referrer-Policy: no-referrer` และเปิดลิงก์ที่บันทึกไว้แบบ `noreferrer` เว็บปลายทางจึงไม่รู้ว่ามาจากแอปนี้
+- ปิดหน้า `/docs` ของ FastAPI (หน้านี้โหลดสคริปต์จาก CDN) และปิด `/openapi.json`
+- FastAPI รุ่นใหม่มี OpenTelemetry ในตัว ซึ่งไม่ส่งอะไรถ้าไม่ได้ตั้งค่า (ต้องตั้ง `FASTAPI_OTEL_AUTO_CONFIGURE` + endpoint + ติดตั้ง exporter ซึ่งไม่ได้ติดตั้ง) แอปปิดไว้เพิ่มอีกชั้น: `telemetry` ปิดทุกอย่าง และ `OTEL_SDK_DISABLED=true`
+
+**Library ที่ใช้:**
+- อ่านไฟล์: openpyxl, python-docx, python-pptx, pypdf, pypdfium2/pdfium, Pillow, ตัวอ่าน Rust (calamine, roxmltree, zip) และ Tesseract — ไม่มีโค้ดเครือข่าย
+- parser XML ของ python-docx/python-pptx/openpyxl ตั้ง `resolve_entities=False` ไฟล์ที่ถูกแก้ให้อ้าง URL ภายนอกจึงสั่งให้แอปดึงอะไรจากเน็ตไม่ได้
+- crate ของ Rust ไม่มี library เครือข่ายเลย (ไม่มี reqwest/hyper/tokio)
+- uvicorn/anyio มีโค้ด socket เพราะเป็นตัวรับการเชื่อมต่อของเว็บแอปเอง
+
+**สิ่งที่ใช้เน็ต (ไม่เกี่ยวกับข้อมูลของคุณ):**
+- ตอนติดตั้ง: `pip install`, `docker build` ดึงแพ็กเกจและ image
+- สคริปต์ start เปิดหน้าดาวน์โหลด Python ถ้าเครื่องยังไม่มี Python
+- เมื่อคุณกดเปิดลิงก์ที่บันทึกไว้เอง
+
+ตรวจซ้ำเองได้ (Linux):
+
+```bash
+strace -f -e trace=connect -o net.log python -m search_anything --folder ~/Documents
+```
+
+```bash
+grep -E 'AF_INET6?' net.log
+```
+
+ควรเห็นแค่ `127.0.0.1` / `::1`
+
 ## โครงสร้าง
 
 ```

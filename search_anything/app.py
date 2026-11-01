@@ -88,6 +88,24 @@ class ScanSettingsIn(BaseModel):
 
 
 # ----------------------------------------------------------------- helpers
+CSP = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
+       "media-src 'self'; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; "
+       "form-action 'self'; frame-ancestors 'none'")
+
+
+def _new_fastapi() -> FastAPI:
+    """FastAPI without the API docs pages (they load scripts from a CDN) and with
+    its built-in OpenTelemetry hooks switched off (newer FastAPI versions; they
+    send nothing unless configured, but this app never wants them)."""
+    os.environ.setdefault("OTEL_SDK_DISABLED", "true")
+    kwargs = dict(title="Search Anything", docs_url=None, redoc_url=None, openapi_url=None)
+    try:
+        return FastAPI(**kwargs, telemetry={"tracing": False, "metrics": False, "logs": False,
+                                            "auto_configure": False})
+    except TypeError:  # FastAPI versions without the telemetry option
+        return FastAPI(**kwargs)
+
+
 def build_body(kind: str, content: str, url: str, username: str, tags: list[str]) -> str:
     """Searchable text for an item. Never includes secrets."""
     parts = {
@@ -176,7 +194,7 @@ def create_app(config: Config) -> FastAPI:
         return bool(path) and Path(path).parent == upload_dir
     vault = Vault(db, config.auto_lock_seconds, config.scrypt_n)
 
-    app = FastAPI(title="Search Anything", docs_url=None, redoc_url=None)
+    app = _new_fastapi()
     app.state.db, app.state.indexer, app.state.vault, app.state.config = db, indexer, vault, config
 
     app.add_middleware(
@@ -187,6 +205,17 @@ def create_app(config: Config) -> FastAPI:
         same_site="strict",
         https_only=config.https_only_cookie,
     )
+    @app.middleware("http")
+    async def no_outside_requests(request: Request, call_next):
+        """Browser-side guarantee that the page talks only to this app: no
+        scripts, styles, fonts, images or connections from anywhere else, and
+        no Referer sent when the user opens a bookmark."""
+        response = await call_next(request)
+        response.headers.setdefault("Content-Security-Policy", CSP)
+        response.headers.setdefault("Referrer-Policy", "no-referrer")
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        return response
+
     allowed_hosts = config.allowed_hosts or (LOCAL_HOSTS if config.mode == "local" else ["*"])
     # In local mode this blocks DNS-rebinding attacks from malicious websites.
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts)
@@ -497,7 +526,10 @@ def create_app(config: Config) -> FastAPI:
     def open_file(item_id: int):
         if not config.can_open_files:
             raise HTTPException(403, "running in a container: download the file instead")
-        open_with_os(file_row(item_id)["path"])
+        try:
+            open_with_os(file_row(item_id)["path"])
+        except OSError as exc:  # no program to open it with (e.g. a server without a desktop)
+            raise HTTPException(400, f"เปิดไฟล์ด้วยโปรแกรมของเครื่องไม่ได้ ({exc.strerror or exc}) — ใช้ \"ดูเนื้อหา\" หรือดาวน์โหลดแทน")
         return {"ok": True}
 
     @app.get("/api/files/{item_id}/download", dependencies=[Depends(require_auth)])

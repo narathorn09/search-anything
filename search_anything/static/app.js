@@ -450,7 +450,7 @@ function select(i) {
 
 async function primaryAction(r) {
   if (r.kind === "file") return openFile(r.id);
-  if (r.kind === "bookmark") { const u = safeUrl(r.url); if (u) window.open(u, "_blank", "noopener"); return; }
+  if (r.kind === "bookmark") { const u = safeUrl(r.url); if (u) window.open(u, "_blank", "noopener,noreferrer"); return; }
   if (r.kind === "password") { const p = await revealPassword(r.id); if (p != null) copy(p, "คัดลอกรหัสผ่านแล้ว"); return; }
   if (r.kind === "note") return editItem(r.id);
 }
@@ -523,7 +523,7 @@ async function showDetail(id) {
     const u = safeUrl(item.url);
     parts.push(el("div", { class: "field" }, el("label", {}, "URL"),
       valueBox(u ? el("a", { href: u, target: "_blank", rel: "noopener noreferrer", class: "value" }, item.url) : el("span", { class: "value" }, item.url),
-        u ? btn("", () => window.open(u, "_blank", "noopener"), "ghost icon-only sm", "open", { title: "เปิดลิงก์" }) : null)));
+        u ? btn("", () => window.open(u, "_blank", "noopener,noreferrer"), "ghost icon-only sm", "open", { title: "เปิดลิงก์" }) : null)));
   }
   if (item.kind === "password") {
     if (item.username) parts.push(el("div", { class: "field" }, el("label", {}, "Username"),
