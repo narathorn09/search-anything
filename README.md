@@ -15,7 +15,42 @@
 
 ![Search Anything](docs/screenshot.png)
 
-## เริ่มใช้งานด้วยคำสั่งเดียว
+## ติดตั้งแบบแอป (Windows / Mac)
+
+ดาวน์โหลดตัวติดตั้งจากหน้า [Releases](https://github.com/narathorn09/search-anything/releases/latest):
+
+| เครื่อง | ไฟล์ | ติดตั้ง |
+|---|---|---|
+| **Windows 10/11** | `SearchAnything-Setup-X.Y.Z.exe` | ดับเบิลคลิก แล้วกด Next (ติดตั้งให้ผู้ใช้คนเดียว ไม่ต้องใช้สิทธิ์ admin) |
+| **Mac ชิป Apple (M1 ขึ้นไป)** | `SearchAnything-X.Y.Z-macos-arm64.dmg` | เปิด แล้วลาก Search Anything ไปใส่ Applications |
+| **Mac ชิป Intel** | `SearchAnything-X.Y.Z-macos-x86_64.dmg` | เหมือนกัน |
+
+แอปเปิดเป็นหน้าต่างของตัวเอง มี OCR ภาษาไทย/อังกฤษ และตัวอ่านไฟล์ภาษา Rust ในตัว ไม่ต้องลง Python, Docker หรือ Tesseract เพิ่ม ครั้งแรกจะสแกน Documents, Desktop และ Downloads ให้เอง (เปลี่ยนได้ในตั้งค่า) ข้อมูลเก็บไว้ที่ `%LOCALAPPDATA%\SearchAnything` (Windows) หรือ `~/Library/Application Support/Search Anything` (Mac) ถอนการติดตั้งแล้วข้อมูลยังอยู่
+
+**ครั้งแรกที่เปิด ระบบจะเตือน** เพราะตัวติดตั้งยังไม่ได้เซ็นด้วยใบรับรองที่ซื้อจาก Microsoft/Apple:
+- **Windows**: หน้าจอ "Windows protected your PC" → กด **More info** → **Run anyway**
+- **Mac**: เปิดแล้วถูกบล็อก → **System Settings → Privacy & Security** → เลื่อนลงไปกด **Open Anyway** (หรือคลิกขวาที่แอป → Open)
+- macOS จะถามสิทธิ์เข้าโฟลเดอร์ Documents/Desktop/Downloads ครั้งแรก ให้กด Allow
+
+### อัปเดตในแอป
+
+**ตั้งค่า → เกี่ยวกับและอัปเดต**: แอปตรวจหาเวอร์ชันใหม่วันละครั้ง (ปิดได้) ถ้ามี จะขึ้นข้อความแจ้ง กด **อัปเดตเลย** แอปจะดาวน์โหลดตัวติดตั้งของเครื่องนั้น ตรวจ SHA-256 กับค่าที่ GitHub ประกาศ แล้วติดตั้งและเปิดใหม่เอง ข้อมูลไม่หาย (บน Mac ถ้าแอปอยู่ในโฟลเดอร์ที่เขียนไม่ได้ จะเปิดไฟล์ .dmg ให้ลากไปทับเอง)
+
+### ออกเวอร์ชันใหม่ (สำหรับผู้ดูแลโปรเจกต์)
+
+เวอร์ชันอยู่ที่ `search_anything/__init__.py` ทำบน `main`:
+
+```bash
+python tools/release.py 1.1.0
+```
+
+```bash
+git push origin main v1.1.0
+```
+
+GitHub Actions (`.github/workflows/desktop.yml`) จะ build ตัวติดตั้ง Windows และ Mac (ทั้งสองชิป) ทดสอบเปิดแอปจริงบนแต่ละเครื่อง (ค้นคำไทยในไฟล์ .doc/.xls/.ppt และ OCR) แล้วสร้าง Release `v1.1.0` พร้อมไฟล์ แอปที่ติดตั้งไว้จะเห็นเวอร์ชันใหม่ภายในหนึ่งวัน (หรือกด "ตรวจเดี๋ยวนี้") CI ไม่ปล่อย Release ถ้า tag ไม่ตรงกับเวอร์ชันในโค้ด หรือ commit ของ tag ไม่ได้อยู่ใน `main` ทุก push เข้า `main`/`dev` ก็ build ตัวติดตั้งให้ดาวน์โหลดจากหน้า Actions (artifacts) ได้เพื่อทดสอบก่อนปล่อย
+
+## เริ่มใช้งานจากโค้ด (สคริปต์คำสั่งเดียว)
 
 ดาวน์โหลดโปรเจกต์ (ปุ่ม Code → Download ZIP แล้วแตกไฟล์ หรือใช้ `git clone`) จากนั้น:
 
@@ -344,7 +379,11 @@ pip install ./native
 
 ## ความเป็นส่วนตัว: ข้อมูลไม่ออกจากเครื่อง
 
-แอปนี้ไม่ส่งเนื้อหาไฟล์ โน้ต รหัสผ่าน คำค้น หรือข้อมูลใช้งานไปที่ไหนเลย ไม่มี telemetry ไม่มี analytics ไม่เรียก API ภายนอก ตรวจแล้วทั้งโค้ดและ library (1 พ.ย. 2569):
+แอปนี้ไม่ส่งเนื้อหาไฟล์ โน้ต รหัสผ่าน คำค้น หรือข้อมูลใช้งานไปที่ไหนเลย ไม่มี telemetry ไม่มี analytics ตรวจแล้วทั้งโค้ดและ library (1 พ.ย. 2569)
+
+**ข้อยกเว้นเดียว: การตรวจหาเวอร์ชันใหม่ในแอปที่ติดตั้ง (Windows/Mac)** วันละครั้ง แอปขอข้อมูล release ล่าสุดจาก `api.github.com/repos/narathorn09/search-anything/releases/latest` (ไม่ส่งข้อมูลอะไรของคุณไปด้วย มีแค่ User-Agent `SearchAnything/<เวอร์ชัน>`) และเมื่อกด "อัปเดตเลย" จะดาวน์โหลดตัวติดตั้งจาก GitHub ปิดได้ที่ **ตั้งค่า → เกี่ยวกับและอัปเดต** หรือตั้ง `SA_UPDATES=0` แบบรันจากโค้ด, Docker และโหมด server ไม่มีการตรวจนี้เลย
+
+ผลการตรวจด้านล่างเป็นแบบรันจากโค้ด (ไม่มีการตรวจอัปเดต):
 
 **ตรวจขณะรันจริง:** รันแอปด้วย `strace -f -e trace=connect,sendto,sendmsg,bind` ใช้ทุกฟีเจอร์:
 - สแกนไฟล์ Word, Excel, PowerPoint, PDF และไฟล์ข้อความ
@@ -399,9 +438,14 @@ search_anything/
   ocr.py        # อ่านข้อความจากภาพสแกน (Tesseract + pdfium)
   textview.py   # อ่านไฟล์ใหญ่ทีละช่วงสำหรับหน้าดูเนื้อหา
   legacy.py     # ไฟล์ Office รุ่นเก่า .doc .xls .ppt
+  desktop.py    # แอปเดสก์ท็อป (หน้าต่าง, โฟลเดอร์ข้อมูล, Tesseract ในตัว)
+  updater.py    # อัปเดตในแอปจาก GitHub Releases
 native/         # ตัวอ่าน Word/Excel/PowerPoint ภาษา Rust (ไม่บังคับ)
 tools/
   bench_scan.py # วัดความเร็วการสแกนทีละขั้น
+  release.py    # ออกเวอร์ชันใหม่ (ตั้งเวอร์ชัน + tag)
+  smoke_desktop.py # ทดสอบแอปที่ build แล้ว (ใช้ใน CI)
+packaging/      # PyInstaller spec, ตัวติดตั้ง Windows (Inno Setup), ไอคอน
   static/       # หน้าเว็บ (HTML/CSS/JS ล้วน ไม่ต้อง build)
     prefs.js    # ค่าตั้งค่าหน้าตา + ค่าเริ่มต้น (โหลดก่อนวาดหน้าจอ)
 tests/

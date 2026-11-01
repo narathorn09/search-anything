@@ -30,6 +30,7 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -129,7 +130,13 @@ class Updater:
                 "size": asset and asset.get("size"),
             }
             self.state = "idle"
-        except Exception as exc:  # offline, rate-limited, no release yet …
+        except urllib.error.HTTPError as exc:
+            if exc.code == 404:  # the project has not published a release yet
+                self.latest, self.state = None, "idle"
+                self.error = "ยังไม่มีเวอร์ชันที่ปล่อยออกมา"
+            else:
+                self.state, self.error = "error", f"ตรวจหาเวอร์ชันใหม่ไม่ได้: {exc}"
+        except Exception as exc:  # offline, rate-limited …
             self.state, self.error = "error", f"ตรวจหาเวอร์ชันใหม่ไม่ได้: {exc}"
             log.info("update check failed: %s", exc)
         self.last_check = time.time()

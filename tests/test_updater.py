@@ -95,3 +95,13 @@ def test_update_api_only_in_the_desktop_app(tmp_path):
     st = desktop.get("/api/status").json()["update"]
     assert st["enabled"] and st["current"] == __version__ and st["can_install"] is False  # not frozen
     assert desktop.put("/api/update/settings", json={"auto": False}).json()["auto"] is False
+
+
+def test_no_release_yet_is_not_an_error(tmp_path):
+    import urllib.error
+
+    def not_found(url):
+        raise urllib.error.HTTPError(url, 404, "Not Found", {}, None)
+
+    st = updater.Updater(tmp_path, enabled=True, fetch=not_found).check()
+    assert st["state"] == "idle" and st["newer"] is False and "ยังไม่มีเวอร์ชัน" in st["error"]
