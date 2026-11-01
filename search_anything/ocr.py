@@ -160,7 +160,7 @@ class Reader:
         self.on_page = None  # callback(page_no, page_count)
 
     # -------------------------------------------------------------- tesseract
-    def _tesseract(self, image) -> str:
+    def _tesseract(self, image, extra: tuple[str, ...] = ()) -> str:
         """Text of one image, without the lines Tesseract is unsure of (see keep_confident)."""
         fd, tmp = tempfile.mkstemp(prefix="sa-ocr-", suffix=".png")
         os.close(fd)
@@ -168,7 +168,7 @@ class Reader:
         try:
             image.save(tmp, "PNG", compress_level=1)
             # One pass writes both the text (.txt) and per-word confidence (.tsv).
-            if not self._run([self.eng.path, tmp, base, "-l", self.eng.lang, "--psm", "3", "txt", "tsv"]):
+            if not self._run([self.eng.path, tmp, base, "-l", self.eng.lang, "--psm", "3", *extra, "txt", "tsv"]):
                 return ""
             try:
                 text = Path(base + ".txt").read_text(encoding="utf-8", errors="replace")
@@ -282,10 +282,26 @@ class Reader:
                 if max(page.size) > MAX_SIDE_PX:
                     page.thumbnail((MAX_SIDE_PX, MAX_SIDE_PX))
                 pages += 1
-                text = clean(self._tesseract(page))
+                text = self._read_picture(page)
                 if text:
                     parts.append(f"--- หน้า {n + 1} ---\n{text}" if frames > 1 else text)
         return "\n\n".join(parts), pages
+
+    def _read_picture(self, page) -> str:
+        """Pictures (photos, screenshots, chat images) are often small, shrunk and
+        recompressed, with pale text on mixed backgrounds. Measured on such
+        images (tools/README, "OCR"): enlarging small ones and adding a second
+        pass with adaptive thresholding found 82% of the words instead of 58%."""
+        from PIL import Image
+
+        f = min(UPSCALE_MAX, UPSCALE_TO_PX / max(page.size))
+        if f > 1.05:
+            page = page.resize((round(page.width * f), round(page.height * f)), Image.LANCZOS)
+        text = clean(self._tesseract(page))
+        if not text:
+            return ""  # no text found: skip the second pass (most photos)
+        second = clean(self._tesseract(page, ("-c", "thresholding_method=1")))
+        return merge_passes(text, second)
 
     def read(self, path: str, max_pages: int = DEFAULT_MAX_PAGES) -> tuple[str, int]:
         if os.path.splitext(path)[1].lower() in PDF_EXTENSIONS:
@@ -294,6 +310,22 @@ class Reader:
 
 
 MIN_LINE_CONFIDENCE = 60  # mean Tesseract confidence (0-100) a line needs to be kept
+UPSCALE_TO_PX = 2600  # pictures smaller than this (longest side) are enlarged …
+UPSCALE_MAX = 3.0  # … by at most this factor
+_SPACES = re.compile(r"\s+")
+
+
+def merge_passes(first: str, second: str) -> str:
+    """The first pass, plus lines only the second pass found (with at least
+    three letters or digits, so stray marks from busy backgrounds stay out)."""
+    seen = _SPACES.sub("", first)
+    extra = []
+    for line in second.splitlines():
+        flat = _SPACES.sub("", line)
+        if flat and flat not in seen and sum(ch.isalnum() for ch in flat) >= 3:
+            extra.append(line.strip())
+            seen += flat
+    return first + ("\n" + "\n".join(extra) if extra else "")
 
 
 def keep_confident(text: str, tsv: str) -> str:

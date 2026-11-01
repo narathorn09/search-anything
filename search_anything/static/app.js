@@ -16,6 +16,7 @@ const ICONS = {
   eye: '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/>',
   open: '<path d="M14 4h6v6M20 4l-9 9M18 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4"/>',
   upload: '<path d="M12 15V4M7.5 8.5 12 4l4.5 4.5M5 15v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3"/>',
+  download: '<path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 15v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3"/>',
   trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/>',
   close: '<path d="M6 6l12 12M18 6 6 18"/>',
   edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/>',
@@ -1432,6 +1433,72 @@ function pageReset() {
   ];
 }
 
+// ------------------------------------------------------------ about / updates
+let updatePoll = null;
+
+function fmtBytes(n) { return n ? `${(n / 1048576).toFixed(1)} MB` : ""; }
+
+async function updateAction(path, body) {
+  try {
+    const st = await api(path, { method: path.endsWith("settings") ? "PUT" : "POST", body });
+    state.status.update = st;
+    renderSettingsPage();
+    if (st.state === "downloading" || st.state === "installing") pollUpdate();
+  } catch (e) { toast(e.message); }
+}
+
+function pollUpdate() {
+  clearTimeout(updatePoll);
+  updatePoll = setTimeout(async () => {
+    try {
+      const st = await api("/api/update");
+      state.status.update = st;
+      if (settingsOpen() && settingsPage === "about") renderSettingsPage();
+      if (st.state === "downloading" || st.state === "installing") pollUpdate();
+    } catch { pollUpdate(); } // the app closes itself to install: keep trying quietly
+  }, 700);
+}
+
+function pageAbout() {
+  const s = state.status;
+  const u = s.update;
+  const rows = [pref("เวอร์ชันที่ใช้อยู่", "Search Anything", el("strong", {}, s.version || "—"))];
+  if (!u) {
+    rows.push(pref("อัปเดต", s.in_container
+      ? "รันใน Docker: ดึงโค้ดใหม่ (git pull) แล้วรันสคริปต์ start อีกครั้ง"
+      : "แอปที่ติดตั้งจากตัวติดตั้ง Windows/Mac อัปเดตในแอปได้ · แบบรันจากโค้ด: git pull แล้วเปิดใหม่", el("span")));
+    return [group("เกี่ยวกับ", rows)];
+  }
+  rows.push(pref("ตรวจหาเวอร์ชันใหม่อัตโนมัติ", "วันละครั้ง ถาม GitHub ว่าเวอร์ชันล่าสุดคืออะไร ไม่ส่งข้อมูลไฟล์ คำค้น หรือข้อมูลใดๆ ของคุณ",
+    toggle(u.auto, (v) => updateAction("/api/update/settings", { auto: v }), "ตรวจหาเวอร์ชันใหม่อัตโนมัติ")));
+  const checked = u.last_check ? `ตรวจล่าสุด ${fmtAgo(u.last_check)}` : "ยังไม่ได้ตรวจ";
+  let box;
+  if (u.state === "downloading" || u.state === "installing") {
+    const pct = Math.round((u.progress || 0) * 100);
+    box = el("div", { class: "scan-card" },
+      el("div", { class: "scan-top" }, el("div", { class: "state" },
+        el("strong", {}, el("span", { class: "dot-live on" }), u.state === "installing" ? `กำลังติดตั้ง ${u.latest}…` : `กำลังดาวน์โหลด ${u.latest}…`),
+        el("span", {}, u.state === "installing" ? "แอปจะปิดแล้วเปิดเวอร์ชันใหม่ให้เอง" : `${pct}% · ${fmtBytes(u.size)}`))),
+      el("div", { class: "progress" }, el("span", { style: `width:${u.state === "installing" ? 100 : pct}%` })));
+  } else if (u.newer) {
+    box = el("div", { class: "scan-card" },
+      el("div", { class: "scan-top" },
+        el("div", { class: "state" }, el("strong", {}, el("span", { class: "dot-live on" }), `มีเวอร์ชันใหม่ ${u.latest}`),
+          el("span", {}, `${fmtBytes(u.size)}${u.published ? " · ออกเมื่อ " + fmtShortDate(Date.parse(u.published) / 1000) : ""}`)),
+        u.can_install ? btn("อัปเดตเลย", () => updateAction("/api/update/install"), "primary", "download")
+          : (u.page ? btn("เปิดหน้าดาวน์โหลด", () => window.open(u.page, "_blank", "noopener,noreferrer"), "primary", "open") : null)),
+      u.notes ? el("pre", { class: "notes" }, u.notes) : null);
+  } else {
+    box = el("p", { class: "secondary" }, u.latest ? `ใช้เวอร์ชันล่าสุดอยู่แล้ว (${u.latest})` : "");
+  }
+  rows.push(pref("สถานะ", `${checked}${u.error ? " · " + u.error : ""}`,
+    btn("ตรวจเดี๋ยวนี้", () => updateAction("/api/update/check"), "secondary sm", null,
+      u.state === "checking" || u.state === "downloading" ? { disabled: "" } : {})));
+  return [group("เกี่ยวกับและอัปเดต", rows,
+    "ดาวน์โหลดจาก GitHub Releases ของโปรเจกต์ และตรวจ SHA-256 ก่อนติดตั้ง ข้อมูลของคุณ (โน้ต รหัสผ่าน ดัชนี) อยู่ที่เดิม ไม่หายตอนอัปเดต"),
+    el("section", { class: "group" }, box)];
+}
+
 const SETTINGS_PAGES = [
   { key: "appearance", label: "หน้าตา", icon: "palette", desc: "ธีม สี ตัวอักษร และรูปทรงของหน้าจอ", render: pageAppearance },
   { key: "display", label: "การแสดงผล", icon: "layout", desc: "เลือกว่าจะแสดงอะไรบนหน้าจอ ปิดส่วนที่ไม่ใช้ได้", render: pageDisplay },
@@ -1439,6 +1506,7 @@ const SETTINGS_PAGES = [
   { key: "scanning", label: "การสแกนไฟล์", icon: "activity", desc: "สถานะ หยุด/เริ่มสแกน จำกัด CPU/RAM และโฟลเดอร์", render: pageScanning },
   { key: "security", label: "ความปลอดภัย", icon: "lock", desc: "ตู้รหัสผ่านและบัญชี", render: pageSecurity },
   { key: "reset", label: "รีเซ็ต", icon: "reset", desc: "คืนค่าหน้าตาเริ่มต้น หรือเลือกชุดการตั้งค่าสำเร็จรูป", render: pageReset },
+  { key: "about", label: "เกี่ยวกับและอัปเดต", icon: "download", desc: "เวอร์ชัน และอัปเดตแอป", render: pageAbout },
 ];
 let settingsPage = "appearance";
 
@@ -1484,10 +1552,17 @@ function closeSettings() {
 let statusTimer = null;
 let wasRunning = false;
 
+let updateNoticeShown = false;
+
 async function refreshStatus() {
   state.status = await api("/api/status");
   renderStatusUI();
   scheduleStatus();
+  const u = state.status.update;
+  if (u && u.newer && !updateNoticeShown && !(settingsOpen() && settingsPage === "about")) {
+    updateNoticeShown = true;
+    toast(`มีเวอร์ชันใหม่ ${u.latest} · ไปที่ ตั้งค่า → เกี่ยวกับและอัปเดต`);
+  }
 }
 
 /** Poll quickly while a scan runs (live progress), slowly otherwise. */
