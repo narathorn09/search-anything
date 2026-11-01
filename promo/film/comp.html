@@ -53,7 +53,12 @@ body{font-family:GS,sans-serif;color:var(--ink)}
   box-shadow:0 18px 36px -16px rgba(0,0,0,.35);transform-origin:50% 100%}
 #cal .top{height:34px;background:var(--red)}
 #cal .num{position:absolute;left:0;right:0;top:40px;text-align:center;font-size:58px;font-weight:700;color:var(--ink);transform-origin:50% 0}
-#folder{position:absolute;left:0;top:0;width:120px;height:96px;transform-origin:50% 100%}
+/* the new folder, as the app draws it (.fp-folder): a white pill, an outlined folder, the name */
+#folder{position:absolute;left:0;top:0;display:flex;align-items:center;gap:9px;height:38px;padding:0 16px 0 13px;box-sizing:border-box;border-radius:999px;
+  background:#fff;border:1px solid #e3e3e0;font-size:16.5px;color:#262626;white-space:nowrap;transform-origin:50% 50%;
+  box-shadow:0 18px 34px -14px rgba(0,0,0,.35),0 0 0 3px rgba(63,207,142,.0)}
+#folder svg{width:19px;height:19px;flex:none}
+#folder .n{color:#7a7a75;font-variant-numeric:tabular-nums}
 #over{position:absolute;left:0;top:0;width:1920px;height:1080px;overflow:visible;pointer-events:none}
 #box{position:absolute;border-radius:22px;background:#fff;border:2px solid #e2e0da;box-sizing:border-box;display:flex;align-items:center;
   box-shadow:0 30px 70px -30px rgba(40,35,20,.35);overflow:hidden}
@@ -79,7 +84,7 @@ body{font-family:GS,sans-serif;color:var(--ink)}
   <div id="lens"><img id="lensImg" alt=""></div><div id="lensHandle"></div>
   <div id="badges"></div>
   <div id="cal"><div class="top"></div><div class="num" id="calNum">1</div></div>
-  <svg id="folder" viewBox="0 0 120 96"><path d="M6 18a10 10 0 0 1 10-10h30l10 12h48a10 10 0 0 1 10 10v50a10 10 0 0 1-10 10H16A10 10 0 0 1 6 80z" fill="#f6c453" stroke="#262626" stroke-width="4" stroke-linejoin="round"/><path d="M6 34h108" stroke="#262626" stroke-width="4"/></svg>
+  <div id="folder"><svg viewBox="0 0 24 24" fill="none" stroke="#6b6b6b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2.2h7a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/></svg>โปรเจกต์ลูกค้า</div>
   <div id="box"><svg id="lensIcon" viewBox="0 0 24 24" fill="none" stroke="#8a8a85" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></svg><div class="w" id="word"></div></div>
   <div id="tag">ค้นหาทุกอย่าง <b>ในช่องเดียว</b></div>
   <div id="get">Windows · Mac &nbsp;·&nbsp; github.com/narathorn09/cahon</div>
@@ -373,10 +378,13 @@ function seek(t) {
   const flips = [1, 7, 14, 21, 30], fu = seg(t, CLICK.date + 0.5, CLICK.d30 + 0.1) * (flips.length - 1), fk = clamp(Math.floor(fu + 1e-4), 0, flips.length - 1);
   $('calNum').textContent = flips[fk];
   $('calNum').style.transform = `scaleY(${(fk < flips.length - 1 ? 1 - 0.6 * Math.sin(Math.PI * (fu % 1)) : 1 + 0.15 * OM.ring(t - CLICK.d30 - 0.1, 7, 20)).toFixed(3)})`;
-  // the folder flies from the window into the panel
-  const fo = $('folder'), fIn = popS(t, CLICK.dir + 0.05), fh = OM.hop(t, CLICK.choose + 0.05, CLICK.choose + 0.75, { x: DIR.x + 40, y: DIR.y - 60 }, { x: NEWF.x + 30, y: NEWF.y - 80 }, { height: 180 });
-  const fLand = OM.impact(t, CLICK.choose + 0.75, { decay: 8 });
-  tf(fo, t < CLICK.choose + 0.05 ? DIR.x + 40 : fh.x, t < CLICK.choose + 0.05 ? DIR.y - 60 : fh.y, fIn * (1 - sstep(CLICK.choose + 0.95, CLICK.choose + 1.25, t)), t > CLICK.dir ? 1 : 0, 0, fLand.sx, fLand.sy);
+  // the folder the hand picked lifts out of the window as the app's own chip, flies over and settles into its slot in the panel
+  const fo = $('folder'), lift = popS(t, CLICK.dir + 0.05), FROM = { x: DIR.x + 8, y: DIR.y + 3 }, TO = { x: NEWF.x, y: NEWF.y };
+  const ffly = ease.cubicInOut(seg(t, CLICK.choose + 0.05, CLICK.choose + 0.85)), arc = Math.sin(Math.PI * ffly) * 150;
+  const fx = lerp(FROM.x, TO.x, ffly), fy = lerp(FROM.y - 14 * lift, TO.y, ffly) - arc;
+  const settle = OM.impact(t, CLICK.choose + 0.85, { decay: 9 }), fs1 = 1 + 0.18 * lift * (1 - ffly) + 0.12 * Math.sin(Math.PI * ffly);
+  tf(fo, fx, fy, fs1, (t > CLICK.dir ? 1 : 0) * (1 - sstep(CLICK.choose + 0.9, CLICK.choose + 1.1, t)), lerp(-3, 0, ffly) * lift, settle.sx, settle.sy);
+  fo.style.boxShadow = `0 ${18 + arc / 6}px ${34 + arc / 4}px -14px rgba(0,0,0,${0.35 * (1 - sstep(CLICK.choose + 0.85, CLICK.choose + 1.1, t))}),0 0 0 ${(3 * lift).toFixed(1)}px rgba(63,207,142,${(0.55 * (1 - ffly)).toFixed(2)})`;
 
   // ── the host, in the corner: reacts to every beat
   const host = $('host'), hostIn = popS(t, ENTER + 0.8), hostOut = 1 - sstep(T.end + 1.3, T.end + 1.5, t);

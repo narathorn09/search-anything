@@ -4,8 +4,8 @@
 
 Cold open: no music, the mascot's hops and the red ✕ on each wrong file, a sad little fall, a spinner.
 ENTER: a bright chord and the groove starts (made here from scratch: no samples, no licence), 116 BPM.
-Every answer gets one sound: a glass "found" chime with the ✓. The music drops out in the holds and while
-the mascot waits for the OCR, and ends on a chord as the name is written.
+Every answer gets one sound: a glass "found" chime with the ✓. Music plays all the way through (soft and sad in the
+cold open, bright from ENTER) and ends on a chord as the name is written.
 """
 import json
 import os
@@ -150,10 +150,15 @@ while t < WRITE - 0.01:
     k += 1
 for i, n in enumerate(("C3", "G3", "E4", "G4", "C5")):
     add(WRITE + 0.5 + i * 0.03, tone(note(n), 2.0, 2.2, 0.2), (i - 2) * 0.2, 0.08)
-RESTS = ((T["hold1"], T["s2"] + 0.3), (T["pay2"] + 0.6, T["s3"]), (CL["ocr"] + 0.3, T["read"] - 0.05), (T["pay4"] + 0.15, T["s5"]))
-gate = np.ones(n_total)
-for a, b in RESTS:
-    gate *= 1 - np.clip(np.minimum((t_all - a) / 0.15, (b - t_all) / 0.15), 0, 1)
-music *= (gate * np.clip((DUR - 0.6 - t_all) / 1.2, 0, 1))[:, None]
+# the cold open has music too: soft and a little sad (A minor), no drums, until the mascot jumps
+sad = [["A3", "C4", "E4"], ["F3", "A3", "C4"], ["D3", "F3", "A3"], ["E3", "G#3", "B3"]]
+note_sharp = lambda n: note(n.replace("#", "")) * (2 ** (1 / 12) if "#" in n else 1)
+for i, chord in enumerate(sad):
+    t0 = i * ENTER / 4
+    fs = [note_sharp(n) for n in chord]
+    add(t0, pad(fs, ENTER / 4 + 0.4), 0, 0.022)
+    for b in range(4):
+        add(t0 + b * ENTER / 16, tone(fs[b % 3] * 2, 0.6, 5), -0.25 if b % 2 else 0.25, 0.035)
+music *= np.clip((DUR - 0.6 - t_all) / 1.2, 0, 1)[:, None]   # music all the way through; it only fades at the very end
 s.dry += music
 s.write(os.path.join(HERE, "sfx.wav"), peak_db=-3.5)
