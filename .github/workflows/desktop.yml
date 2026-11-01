@@ -81,6 +81,8 @@ jobs:
           pyinstaller packaging/search-anything.spec --noconfirm --distpath dist --workpath build
       - name: Smoke test
         run: python tools/smoke_desktop.py "dist/Search Anything/Search Anything.exe"
+      - name: Clipboard (copy button in the app window)
+        run: python tools/check_clipboard.py
       - name: Installer (Inno Setup)
         shell: pwsh
         run: |
@@ -150,6 +152,8 @@ jobs:
           codesign --force --deep -s - "dist/Search Anything.app"
       - name: Smoke test
         run: python tools/smoke_desktop.py "dist/Search Anything.app/Contents/MacOS/Search Anything"
+      - name: Clipboard (copy button in the app window)
+        run: python tools/check_clipboard.py
       - name: Disk image
         run: |
           mkdir -p dmg

@@ -375,3 +375,21 @@ def test_image_preview_only_for_raster_images(tmp_path):
     assert r.headers["content-disposition"] == "inline"
     assert c.get(f"/api/files/{ids['page.html']}/preview").status_code == 415
     assert c.get(f"/api/files/{ids['logo.svg']}/preview").status_code == 415
+
+
+def test_clipboard_endpoint_desktop_only(tmp_path, monkeypatch):
+    from search_anything import desktop
+
+    copied = []
+    monkeypatch.setattr(desktop, "copy_to_clipboard", copied.append)
+    web = TestClient(create_app(Config(data_dir=tmp_path / "a", allowed_hosts=["testserver"], background_indexing=False)))
+    assert web.get("/api/status").json()["desktop"] is False
+    assert web.post("/api/clipboard", json={"text": "x"}).status_code == 404
+    app = TestClient(create_app(Config(data_dir=tmp_path / "b", allowed_hosts=["testserver"],
+                                       background_indexing=False, desktop=True)))
+    assert app.get("/api/status").json()["desktop"] is True
+    assert app.post("/api/clipboard", json={"text": "สวัสดี path/ไฟล์.pdf"}).json() == {"ok": True}
+    assert copied == ["สวัสดี path/ไฟล์.pdf"]
+    # Another website (cross-origin request) may not write to the clipboard.
+    r = app.post("/api/clipboard", json={"text": "evil"}, headers={"Origin": "https://evil.example"})
+    assert r.status_code == 403 and copied == ["สวัสดี path/ไฟล์.pdf"]

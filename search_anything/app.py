@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hmac
+from urllib.parse import urlsplit
 import re
 import json
 import os
@@ -56,6 +57,7 @@ class Config:
     path_map: list[tuple[str, str]] = field(default_factory=list)
     can_open_files: bool = True  # False inside a container (no desktop to open files with)
     updates: bool = False  # in-app updates (the installed desktop app only)
+    desktop: bool = False  # running as the desktop app (own window, system clipboard)
 
 
 # ----------------------------------------------------------------- schemas
@@ -75,6 +77,10 @@ class ItemIn(BaseModel):
     username: str = ""
     password: str | None = None  # plaintext secret; only for kind=password
     tags: list[str] = []
+
+
+class ClipboardIn(BaseModel):
+    text: str = Field(max_length=5_000_000)
 
 
 class UpdateSettingsIn(BaseModel):
@@ -323,6 +329,7 @@ def create_app(config: Config) -> FastAPI:
                                   "memory_mb": round(CONTAINER.memory_bytes / 1e6) if CONTAINER.memory_bytes else None},
                     "supported_formats": SUPPORTED,
                     "version": __version__,
+                    "desktop": config.desktop,
                     "update": updater.status() if updater.enabled else None,
                 }
             )
@@ -515,6 +522,24 @@ def create_app(config: Config) -> FastAPI:
         if more_ocr and ocr.engine().available and not indexer.running:
             indexer.trigger()  # read the newly included files now (unchanged files are skipped)
         return indexer.status()["settings"]
+
+    @app.post("/api/clipboard", dependencies=[Depends(require_auth), Depends(require_local)])
+    def clipboard(data: ClipboardIn, request: Request):
+        """Desktop app: put text on the system clipboard. The app window's own
+        clipboard access can be refused (WebView2/WebKit), and its JS bridge
+        would need eval, which the page's CSP forbids."""
+        if not config.desktop:
+            raise HTTPException(404, "only in the desktop app")
+        origin = request.headers.get("origin")
+        if origin and urlsplit(origin).netloc != request.headers.get("host"):
+            raise HTTPException(403, "other sites may not use the clipboard")
+        from .desktop import copy_to_clipboard
+
+        try:
+            copy_to_clipboard(data.text)
+        except Exception as exc:
+            raise HTTPException(500, f"copy failed: {exc}")
+        return {"ok": True}
 
     # ---------------------------------------------------------- updates
     @app.get("/api/update", dependencies=[Depends(require_auth), Depends(require_local)])

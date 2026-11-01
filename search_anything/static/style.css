@@ -816,3 +816,17 @@ dialog .note { font-size: var(--text-supporting); color: var(--color-text-second
   font-size: 13px;
   color: var(--color-text-secondary);
 }
+
+/* Right-click menu in the desktop app window */
+.ctx-menu {
+  position: fixed;
+  z-index: 1000;
+  min-width: 160px;
+  padding: 6px;
+  border-radius: 12px;
+  border: 1px solid var(--color-border);
+  background: var(--color-background-surface);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.16);
+  display: grid;
+}
+.ctx-menu .menu-item { text-align: left; }

@@ -110,15 +110,66 @@ function toast(msg) {
   toastTimer = setTimeout(() => t.classList.add("hidden"), 2200);
 }
 
-async function copy(text, label = "คัดลอกแล้ว") {
+const isDesktop = () => !!state.status?.desktop;
+
+async function copyText(text) {
+  // In the desktop app the window's own clipboard access may be refused
+  // (WebView2/WebKit): the app puts it on the system clipboard instead.
+  if (isDesktop()) {
+    try { await api("/api/clipboard", { method: "POST", body: { text } }); return true; } catch { /* fall through */ }
+  }
   try {
     await navigator.clipboard.writeText(text);
+    return true;
   } catch {
-    const ta = el("textarea", {}, text);
-    document.body.append(ta); ta.select(); document.execCommand("copy"); ta.remove();
+    const ta = el("textarea", { style: "position:fixed;opacity:0;user-select:text" }, text);
+    document.body.append(ta); ta.focus(); ta.select();
+    const ok = document.execCommand("copy");
+    ta.remove();
+    return ok;
   }
-  toast(label);
 }
+
+async function copy(text, label = "คัดลอกแล้ว") {
+  toast(await copyText(text) ? label : "คัดลอกไม่ได้ ลองเลือกข้อความแล้วกด Ctrl+C");
+}
+
+// The desktop window has no right-click menu of its own (pywebview turns it
+// off): offer Copy / Select all where it makes sense.
+function selectedText() {
+  const a = document.activeElement;
+  if (a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA") && a.selectionStart !== a.selectionEnd) {
+    return a.value.slice(a.selectionStart, a.selectionEnd);
+  }
+  return String(window.getSelection() || "");
+}
+
+function closeContextMenu() { document.querySelector(".ctx-menu")?.remove(); }
+
+document.addEventListener("contextmenu", (e) => {
+  if (!isDesktop()) return; // a normal browser has its own menu
+  e.preventDefault();
+  closeContextMenu();
+  const text = selectedText();
+  const field = e.target.closest("input, textarea, pre, .vbody, #detail, .results");
+  const items = [];
+  if (text) items.push(["คัดลอก", async () => { await copy(text); }]);
+  if (field) items.push(["เลือกทั้งหมด", () => {
+    if (field.select) { field.focus(); field.select(); return; }
+    const r = document.createRange(); r.selectNodeContents(field);
+    const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+  }]);
+  if (!items.length) return;
+  const menu = el("div", { class: "ctx-menu", role: "menu" }, items.map(([label, run]) =>
+    el("button", { type: "button", class: "menu-item", role: "menuitem", onclick: () => { closeContextMenu(); run(); } }, label)));
+  document.body.append(menu);
+  const w = menu.offsetWidth, h = menu.offsetHeight;
+  menu.style.left = `${Math.min(e.clientX, innerWidth - w - 8)}px`;
+  menu.style.top = `${Math.min(e.clientY, innerHeight - h - 8)}px`;
+});
+document.addEventListener("mousedown", (e) => { if (!e.target.closest(".ctx-menu")) closeContextMenu(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeContextMenu(); }, true);
+window.addEventListener("blur", closeContextMenu);
 
 function fmtSize(n) {
   if (n == null) return "";
