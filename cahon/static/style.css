@@ -321,6 +321,9 @@ mark { background: var(--color-mark); color: inherit; border-radius: 3px; paddin
   background: var(--color-background-muted); border-radius: var(--radius-container);
 }
 #detail .actions { display: flex; gap: var(--space-1-5); flex-wrap: wrap; }
+#detail > * { flex-shrink: 0; }
+#detail > .detail-body { display: flex; flex-direction: column; gap: var(--space-3);
+  flex: 1 1 auto; min-height: 160px; overflow-y: auto; overscroll-behavior: contain; border-radius: var(--radius-container); }
 
 /* side: a sticky column next to the results. It keeps its width even with
    nothing selected (or no results), so the list never jumps wider/narrower. */

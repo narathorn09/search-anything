@@ -639,12 +639,13 @@ async function showDetail(id) {
       btn("คัดลอก path", () => copy(item.path, "คัดลอก path แล้ว"), "secondary", "copy"),
       item.uploaded ? btn("ลบไฟล์", () => deleteItem(item), "danger", "trash") : null));
     const isImage = /\.(png|jpe?g|gif|webp|bmp)$/i.test(item.title);
-    if (isImage) parts.push(el("img", { class: "preview", src: `/api/files/${item.id}/preview`, alt: item.title, loading: "lazy" }));
-    parts.push(item.content
-      ? el("pre", {}, highlight(item.content.slice(0, 20000).trimStart(), t))
-      : el("p", { class: "secondary" }, isImage || /\.(tiff?)$/i.test(item.title)
-        ? "ไม่พบข้อความในรูปนี้ (หรือยังอ่านไม่ถึง: การอ่านข้อความในรูปทำเบื้องหลังหลังสแกนเสร็จ)"
-        : "ไม่มีเนื้อหาที่อ่านได้ (ค้นได้จากชื่อไฟล์)"));
+    parts.push(detailBody(
+      isImage ? el("img", { class: "preview", src: `/api/files/${item.id}/preview`, alt: item.title, loading: "lazy" }) : null,
+      item.content
+        ? el("pre", {}, highlight(item.content.slice(0, 20000).trimStart(), t))
+        : el("p", { class: "secondary" }, isImage || /\.(tiff?)$/i.test(item.title)
+          ? "ไม่พบข้อความในรูปนี้ (หรือยังอ่านไม่ถึง: การอ่านข้อความในรูปทำเบื้องหลังหลังสแกนเสร็จ)"
+          : "ไม่มีเนื้อหาที่อ่านได้ (ค้นได้จากชื่อไฟล์)")));
     box.append(...parts.map((p, i) => withReveal(p, i)));
     return;
   }
@@ -671,14 +672,21 @@ async function showDetail(id) {
     parts.push(el("div", { class: "actions" },
       btn("คัดลอกรหัสผ่าน", async () => { const p = await revealPassword(item.id); if (p != null) copy(p, "คัดลอกรหัสผ่านแล้ว"); }, "primary", "copy")));
   }
-  if (item.tags && item.tags.length) parts.push(el("ul", { class: "chips" }, item.tags.map((tag) => el("li", { class: "chip" }, `#${tag}`))));
-  if (item.content) parts.push(el("pre", {}, highlight(item.content, t)));
   parts.push(el("div", { class: "sub" }, `แก้ไขล่าสุด ${fmtDate(item.updated_at)}`));
   parts.push(el("div", { class: "actions" },
     item.kind === "note" ? btn("ดูเนื้อหา", () => openViewer(item), "secondary", "lines") : null,
     btn("แก้ไข", () => editItem(item.id), "secondary", "edit"),
     btn("ลบ", () => deleteItem(item), "danger", "trash")));
+  const tags = item.tags && item.tags.length
+    ? el("ul", { class: "chips" }, item.tags.map((tag) => el("li", { class: "chip" }, `#${tag}`))) : null;
+  if (tags || item.content) parts.push(detailBody(tags, item.content ? el("pre", {}, highlight(item.content, t)) : null));
   box.append(...parts.map((p, i) => withReveal(p, i)));
+}
+
+// The long part of the details (content, picture). It scrolls on its own, so
+// the name, size, date and buttons above it always stay in view.
+function detailBody(...children) {
+  return el("div", { class: "detail-body" }, ...children.filter(Boolean));
 }
 
 function withReveal(node, i) {
