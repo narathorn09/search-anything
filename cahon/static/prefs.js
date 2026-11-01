@@ -27,6 +27,7 @@ const DEFAULT_PREFS = Object.freeze({
   snippets: true,         // text excerpt under results while searching
   recent: true,           // show recent items before typing
   typeFilter: true,       // file type chips (PDF, Word, Excel …) above the results
+  dateFilter: true,       // date range button (วันนี้, 7 วัน …) next to the sort button
   footer: true,           // shortcuts + status bar
   vaultButton: true,      // lock/unlock button next to search
   scanIndicator: true,    // floating scan progress with a stop button
@@ -41,7 +42,7 @@ const PREF_PRESETS = Object.freeze({
   full: DEFAULT_PREFS,
   minimal: Object.freeze({
     ...DEFAULT_PREFS, layout: "clean", filters: "hidden", detail: "drawer", icons: "small",
-    footer: false, vaultButton: false, scanIndicator: true, typeFilter: false,
+    footer: false, vaultButton: false, scanIndicator: true, typeFilter: false, dateFilter: false,
   }),
 });
 
@@ -80,7 +81,7 @@ function applyPrefs(prefs) {
   for (const key of ["theme", "fontSize", "radius", "density", "font", "layout", "filters", "detail", "icons"]) {
     root.dataset[key] = prefs[key];
   }
-  for (const key of ["motion", "snippets", "recent", "footer", "vaultButton", "scanIndicator", "typeFilter"]) {
+  for (const key of ["motion", "snippets", "recent", "footer", "vaultButton", "scanIndicator", "typeFilter", "dateFilter"]) {
     root.dataset[key] = prefs[key] ? "on" : "off";
   }
   // A side column only fits on wide screens; otherwise details open as a drawer.

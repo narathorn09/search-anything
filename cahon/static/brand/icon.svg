@@ -1,13 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
   <title>CAHON</title>
-<rect x="2" y="2" width="60" height="60" rx="14" fill="#262626"/>
-<g transform="translate(5.5 5) scale(.82)"><ellipse cx="31" cy="59" rx="15" ry="1.8" fill="#000" opacity="0"/>
+<g transform="translate(-6.2 -4.2) scale(1.14)"><ellipse cx="31" cy="59" rx="15" ry="1.8" fill="#000" opacity="0"/>
 <path d="M31 11.5q-1.2-4.6 3-5.6" stroke="#5cc39a" stroke-width="2.4" stroke-linecap="round" fill="none"/>
 <path d="M9 37C9 21 19 11 31 11S53 21 53 37C53 50 44 56.5 31 56.5S9 50 9 37Z" fill="#9fe5c7"/>
 <path d="M15.5 29c1.6-5.6 5.4-9.4 10.5-11" stroke="#fff" stroke-width="2.4" stroke-linecap="round" fill="none" opacity=".75"/>
 <g class="eye"><ellipse cx="24" cy="35" rx="2.4" ry="3.1" fill="#262626"/><ellipse cx="38" cy="35" rx="2.4" ry="3.1" fill="#262626"/></g>
 <ellipse cx="19.5" cy="40.8" rx="2.8" ry="1.6" fill="#ff8fa3" opacity=".5"/><ellipse cx="42.5" cy="40.8" rx="2.8" ry="1.6" fill="#ff8fa3" opacity=".5"/>
 <path d="M28.5 40.5q2.5 2.6 5 0" stroke="#262626" stroke-width="2" stroke-linecap="round" fill="none"/>
-<g class="handle"><circle cx="47.5" cy="46.5" r="6.8" fill="#fff" fill-opacity=".6" stroke="#f4f4f4" stroke-width="3"/>
-<path d="M52.4 51.4l5.4 5.4" stroke="#f4f4f4" stroke-width="4" stroke-linecap="round"/></g></g>
+<g class="handle"><circle cx="47.5" cy="46.5" r="6.8" fill="#fff" fill-opacity=".95" stroke="#262626" stroke-width="3"/>
+<path d="M52.4 51.4l5.4 5.4" stroke="#262626" stroke-width="4" stroke-linecap="round"/></g></g>
 </svg>

@@ -50,6 +50,8 @@ const state = {
   page: null, total: null, approx: false, hasMore: false, loadingMore: false, moreError: false,
   // file type filter: chosen groups ("pdf", "word" …) and the counts for the current search
   types: [], facets: null, facetsKey: "",
+  // date range filter: a preset key ("7d" …) or "custom" with from/to as yyyy-mm-dd
+  range: { key: "", from: "", to: "" },
 };
 const isSide = () => document.documentElement.dataset.detailMode === "side";
 
@@ -323,7 +325,7 @@ async function search() {
   }
   searchAbort = new AbortController();
   const types = typeFilterOn() ? state.types.join(",") : "";
-  state.page = { q, kind: state.kind, sort: prefs.sortBy, types };
+  state.page = { q, kind: state.kind, sort: prefs.sortBy, types, ...rangeParams() };
   const params = new URLSearchParams({ ...state.page, limit: prefs.resultLimit, offset: 0 });
   try {
     const data = await api(`/api/search?${params}`, { signal: searchAbort.signal });
@@ -352,12 +354,13 @@ let facetsAbort = null;
 async function loadTypeCounts(seq) {
   if (!typeFilterOn()) { renderTypeChips(); return; }
   const q = $("#q").value.trim();
-  const key = `${state.kind}|${q}`;
+  const range = rangeParams();
+  const key = `${state.kind}|${q}|${range.since ?? ""}|${range.until ?? ""}`;
   if (key === state.facetsKey && state.facets) { renderTypeChips(); return; }
   facetsAbort?.abort();
   facetsAbort = new AbortController();
   try {
-    const f = await api(`/api/search/facets?${new URLSearchParams({ q, kind: state.kind })}`, { signal: facetsAbort.signal });
+    const f = await api(`/api/search/facets?${new URLSearchParams({ q, kind: state.kind, ...range })}`, { signal: facetsAbort.signal });
     if (seq !== state.seq) return;
     state.facets = f;
     state.facetsKey = key;
@@ -387,6 +390,95 @@ function setTypes(types) {
   state.types = types;
   renderTypeChips();
   search();
+}
+
+// ------------------------------------------------------- date range filter
+const DAY_MS = 86400000;
+const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+const daysAgo = (n) => new Date(startOfDay(new Date()).getTime() - n * DAY_MS);
+// [key, label, () => [since, until] as Dates (null = open)]. Computed on each
+// search, so "วันนี้" stays today even when the app is left open overnight.
+const DATE_RANGES = [
+  ["", "ทุกช่วงเวลา", () => [null, null]],
+  ["today", "วันนี้", () => [daysAgo(0), null]],
+  ["7d", "7 วันล่าสุด", () => [daysAgo(6), null]],
+  ["30d", "30 วันล่าสุด", () => [daysAgo(29), null]],
+  ["90d", "3 เดือนล่าสุด", () => [daysAgo(89), null]],
+  ["year", "ปีนี้", () => [new Date(new Date().getFullYear(), 0, 1), null]],
+  ["older", "เก่ากว่า 1 ปี", () => [null, daysAgo(365)]],
+];
+const dateFilterOn = () => !!prefs.dateFilter;
+const parseDay = (s) => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); };
+
+/** {since, until} in epoch seconds for the chosen range ("until" is exclusive). */
+function rangeParams() {
+  const r = state.range;
+  if (!dateFilterOn() || !r.key) return {};
+  let since = null, until = null;
+  if (r.key === "custom") {
+    if (r.from) since = parseDay(r.from);
+    if (r.to) until = new Date(parseDay(r.to).getTime() + DAY_MS); // the whole "to" day
+  } else {
+    [since, until] = (DATE_RANGES.find(([k]) => k === r.key) || DATE_RANGES[0])[2]();
+  }
+  const out = {};
+  if (since) out.since = since.getTime() / 1000;
+  if (until) out.until = until.getTime() / 1000;
+  return out;
+}
+
+function rangeLabel() {
+  const r = state.range;
+  if (r.key !== "custom") return (DATE_RANGES.find(([k]) => k === r.key) || DATE_RANGES[0])[1];
+  const f = (s) => parseDay(s).toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "2-digit" });
+  if (r.from && r.to) return r.from === r.to ? f(r.from) : `${f(r.from)} – ${f(r.to)}`;
+  return r.from ? `ตั้งแต่ ${f(r.from)}` : `ถึง ${f(r.to)}`;
+}
+
+function updateDateButton() {
+  $("#date-label").textContent = rangeLabel();
+  $("#date-btn").setAttribute("aria-pressed", String(!!state.range.key));
+}
+
+function setRange(range) {
+  state.range = range;
+  updateDateButton();
+  search();
+}
+
+function toggleDateMenu(open = $("#date-menu").classList.contains("hidden")) {
+  const menu = $("#date-menu");
+  if (open) {
+    const check = () => { const c = icon("check"); c.classList.add("check"); return c; };
+    const item = (key, label, onclick) => el("button", {
+      type: "button", class: "menu-item", role: "menuitemradio", "aria-checked": String(state.range.key === key), onclick,
+    }, label, check());
+    menu.replaceChildren(
+      ...DATE_RANGES.map(([key, label]) => item(key, label, () => { toggleDateMenu(false); setRange({ key, from: "", to: "" }); })),
+      el("div", { class: "menu-sep", role: "separator" }),
+      item("custom", state.range.key === "custom" ? `กำหนดเอง: ${rangeLabel()}` : "กำหนดเอง…",
+        () => { toggleDateMenu(false); pickCustomRange(); }));
+    menu.classList.remove("hidden");
+    (menu.querySelector('[aria-checked="true"]') || menu.querySelector("button")).focus();
+  } else {
+    menu.classList.add("hidden");
+  }
+  $("#date-btn").setAttribute("aria-expanded", String(open));
+}
+
+async function pickCustomRange() {
+  const r = state.range.key === "custom" ? state.range : { from: "", to: "" };
+  const today = new Date();
+  const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const picked = await modalLoop("เลือกช่วงวันที่", [
+    { name: "from", label: "ตั้งแต่วันที่", type: "date", value: r.from || iso(daysAgo(30)) },
+    { name: "to", label: "ถึงวันที่", type: "date", value: r.to || iso(today) },
+  ], (v) => {
+    if (!v.from && !v.to) throw new Error("เลือกวันที่อย่างน้อยหนึ่งช่อง");
+    if (v.from && v.to && v.from > v.to) throw new Error("วันเริ่มต้องไม่หลังวันสิ้นสุด");
+    return { key: "custom", from: v.from, to: v.to };
+  }, { submit: "ใช้ช่วงนี้", note: "นับจากวันที่แก้ไขล่าสุดของไฟล์ โน้ต ลิงก์ และรหัสผ่าน" });
+  if (picked) setRange(picked);
 }
 
 /** Ask for the total a moment after the user stops typing (counting can take a while). */
@@ -1106,6 +1198,7 @@ const TOUR = [
   { sel: "#add-btn", title: "ปุ่มเพิ่ม", text: "อัปโหลดไฟล์ จดโน้ต เก็บลิงก์ หรือรหัสผ่าน หรือจะลากไฟล์มาวางที่ไหนก็ได้" },
   { sel: "#filters", title: "เลือกประเภท", text: "ดูเฉพาะไฟล์ โน้ต ลิงก์ หรือรหัสผ่าน ตัวเลขบอกจำนวนในแต่ละประเภท" },
   { sel: "#results", title: "ผลลัพธ์", text: "คลิกเพื่อดูรายละเอียด ดับเบิลคลิกเพื่อเปิด ปุ่ม ดูเนื้อหา จะแสดงเลขบรรทัดที่เจอคำค้น" },
+  { sel: "#date-btn", title: "ช่วงเวลา", text: "ดูเฉพาะที่แก้ไขวันนี้ 7 วัน 30 วัน ปีนี้ หรือเลือกช่วงวันที่เอง" },
   { sel: "#sort-btn", title: "เรียงลำดับ", text: "เกี่ยวข้องที่สุด ล่าสุด ชื่อ ขนาด หรือประเภท" },
   { sel: "#detail", title: "รายละเอียด", text: "ข้อมูลของรายการที่เลือก พร้อมปุ่มเปิดไฟล์ ดูเนื้อหา และคัดลอก" },
   { sel: "#vault-btn", title: "ตู้รหัสผ่าน", text: "ล็อก/ปลดล็อกได้ตรงนี้ ระบบล็อกเองเมื่อไม่ได้ใช้ 15 นาที" },
@@ -1251,8 +1344,10 @@ function applyPreset(next, message) {
 
 function onPrefsChanged(before) {
   if (!before || before.recent !== prefs.recent || before.resultLimit !== prefs.resultLimit || before.sortBy !== prefs.sortBy
-      || (before.typeFilter !== prefs.typeFilter && state.types.length)) search();
-  if (before && before.typeFilter !== prefs.typeFilter) { state.facetsKey = ""; loadTypeCounts(state.seq); }
+      || (before.typeFilter !== prefs.typeFilter && state.types.length)
+      || (before.dateFilter !== prefs.dateFilter && state.range.key)) search();
+  updateDateButton();
+  if (before && (before.typeFilter !== prefs.typeFilter || before.dateFilter !== prefs.dateFilter)) { state.facetsKey = ""; loadTypeCounts(state.seq); }
   updateSortLabel();
   if (!before || before.filters !== prefs.filters) {
     if (prefs.filters === "hidden" && state.kind) setKind(""); // hidden filter must not keep filtering
@@ -1344,6 +1439,8 @@ function pageDisplay() {
       pref("รายการล่าสุด", "แสดงรายการล่าสุดก่อนเริ่มพิมพ์", sw("recent", "รายการล่าสุด")),
       pref("ตัวกรองประเภทไฟล์", "ปุ่ม PDF · Word · Excel · PowerPoint · รูปภาพ … เหนือรายการ พร้อมจำนวนที่เจอ เลือกได้หลายประเภท",
         sw("typeFilter", "ตัวกรองประเภทไฟล์")),
+      pref("ตัวกรองช่วงเวลา", "ปุ่มเลือกช่วงวันที่แก้ไข: วันนี้ · 7 วัน · 30 วัน · ปีนี้ · กำหนดเอง",
+        sw("dateFilter", "ตัวกรองช่วงเวลา")),
     ]),
     group("แถบและปุ่มเสริม", [
       pref("แถบสถานะการสแกน", "มุมซ้ายล่างระหว่างสแกน พร้อมปุ่มหยุด", sw("scanIndicator", "แถบสถานะการสแกน")),
@@ -1878,6 +1975,7 @@ document.addEventListener("keydown", (e) => {
   }
   if (e.key === "Escape") {
     if (!$("#sort-menu").classList.contains("hidden")) { toggleSortMenu(false); $("#sort-btn").focus(); return; }
+    if (!$("#date-menu").classList.contains("hidden")) { toggleDateMenu(false); $("#date-btn").focus(); return; }
     if (!$("#add-menu").classList.contains("hidden")) { toggleAddMenu(false); $("#add-btn").focus(); return; }
     if (settingsOpen()) { closeSettings(); return; }
     if ($("#detail").classList.contains("open")) { closeDetail(); $("#q").focus(); return; }
@@ -1900,9 +1998,12 @@ $("#add-btn").addEventListener("click", (e) => { e.stopPropagation(); toggleAddM
 document.addEventListener("click", (e) => {
   if (!e.target.closest(".add-wrap") && !$("#add-menu").classList.contains("hidden")) toggleAddMenu(false);
   if (!e.target.closest(".sort-wrap") && !$("#sort-menu").classList.contains("hidden")) toggleSortMenu(false);
+  if (!e.target.closest(".date-wrap") && !$("#date-menu").classList.contains("hidden")) toggleDateMenu(false);
 });
+$("#date-btn").addEventListener("click", (e) => { e.stopPropagation(); toggleDateMenu(); });
 $("#sort-btn").addEventListener("click", (e) => { e.stopPropagation(); toggleSortMenu(); });
 updateSortLabel();
+updateDateButton();
 $("#scrim").addEventListener("click", () => { closeGuide(); closeSettings(); closeDetail(); });
 $("#settings-btn").addEventListener("click", () => openSettings());
 $("#settings-close").addEventListener("click", closeSettings);

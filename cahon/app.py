@@ -340,29 +340,30 @@ def create_app(config: Config) -> FastAPI:
     def search(q: str = "", kind: Literal["", "all", "file", "note", "bookmark", "password"] | None = None,
                limit: int = 50, offset: int = 0,
                sort: Literal["relevance", "newest", "oldest", "name", "name_desc", "largest", "type"] = "relevance",
-               types: str = ""):
+               types: str = "", since: float | None = None, until: float | None = None):
         """One page of results. ``total`` is None when not counted yet (ask /api/search/count)."""
         kind = kind or None if kind != "all" else None
         limit = max(1, min(limit, 200))
         offset = max(0, offset)
         terms = q.split()
-        page = db.page(q, kind, sort, offset, limit, filetypes.parse(types))
+        page = db.page(q, kind, sort, offset, limit, filetypes.parse(types), since, until)
         return {"query": q, "offset": offset, "total": page["total"], "approx": page["approx"],
                 "has_more": page["has_more"], "results": [serialize(r, terms) for r in page["results"]]}
 
     @app.get("/api/search/count", dependencies=[Depends(require_auth)])
     def search_count(q: str = "", kind: Literal["", "all", "file", "note", "bookmark", "password"] | None = None,
                      sort: Literal["relevance", "newest", "oldest", "name", "name_desc", "largest", "type"] = "relevance",
-                     types: str = ""):
+                     types: str = "", since: float | None = None, until: float | None = None):
         """Total number of results. Bounded in time: ``approx`` means "at least"."""
         kind = kind or None if kind != "all" else None
-        return db.count(q, kind, sort, filetypes.parse(types))
+        return db.count(q, kind, sort, filetypes.parse(types), since, until)
 
     @app.get("/api/search/facets", dependencies=[Depends(require_auth)])
-    def search_facets(q: str = "", kind: Literal["", "all", "file", "note", "bookmark", "password"] | None = None):
+    def search_facets(q: str = "", kind: Literal["", "all", "file", "note", "bookmark", "password"] | None = None,
+                      since: float | None = None, until: float | None = None):
         """Matching files per type group (PDF, Word …), for the type filter chips."""
         kind = kind or None if kind != "all" else None
-        result = db.facets(q, kind)
+        result = db.facets(q, kind, since, until)
         return {**result, "labels": filetypes.LABELS, "order": filetypes.KEYS}
 
     # ------------------------------------------------------------ items
