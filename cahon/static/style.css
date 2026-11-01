@@ -321,6 +321,9 @@ mark { background: var(--color-mark); color: inherit; border-radius: 3px; paddin
   background: var(--color-background-muted); border-radius: var(--radius-container);
 }
 #detail .actions { display: flex; gap: var(--space-1-5); flex-wrap: wrap; }
+#detail > * { flex-shrink: 0; }
+#detail > .detail-body { display: flex; flex-direction: column; gap: var(--space-3);
+  flex: 1 1 auto; min-height: 160px; overflow-y: auto; overscroll-behavior: contain; border-radius: var(--radius-container); }
 
 /* side: a sticky column next to the results. It keeps its width even with
    nothing selected (or no results), so the list never jumps wider/narrower. */
@@ -568,18 +571,16 @@ mark { background: var(--color-mark); color: inherit; border-radius: 3px; paddin
 
 /* ================================================================ guide */
 :root { --ease-spring: cubic-bezier(.34, 1.56, .64, 1); --ease-bounce: cubic-bezier(.68, -0.55, .27, 1.55);
-  --mascot-ring: var(--color-accent); --mascot-face: #fff8e7; --mascot-cheek: #f7a8b8; }
-:root[data-theme="dark"] { --mascot-face: #3a3427; }
-@media (prefers-color-scheme: dark) { :root[data-theme="system"] { --mascot-face: #3a3427; } }
+  --mascot-ring: var(--color-accent); --mascot-body: #9fe5c7; }
 
-/* "น้องค้น": a magnifying glass with a face (drawn for this app) */
+/* "น้องคาหน": a little round blob holding a magnifier (drawn for this app) */
 .mascot { position: relative; width: 56px; height: 56px; flex-shrink: 0; }
 .mascot.big { width: 112px; height: 112px; }
 .mascot.small { width: 46px; height: 46px; }
 .mascot svg { width: 100%; height: 100%; overflow: visible; }
 /* "น้องคาหน": the eyes blink, the magnifier (with the hand) waves around the hand. */
 .mascot .eye { transform-box: fill-box; transform-origin: center; }
-.mascot .handle { transform-origin: 376px 388px; }
+.mascot .handle { transform-origin: 52px 51px; }
 
 .guide { position: fixed; inset: 0; z-index: 330; display: grid; place-items: center; padding: var(--space-3); }
 .guide-window { width: min(1080px, 100%); max-height: calc(100vh - 32px); display: grid; grid-template-rows: auto minmax(0, 1fr);
@@ -859,3 +860,29 @@ dialog .note { font-size: var(--text-supporting); color: var(--color-text-second
   .empty-mascot.lost svg { animation: none; }
   .empty-mascot.lost .handle { animation: wiggle 1.1s var(--ease-bounce) 1 .2s; }
 }
+
+/* ====================================================== file type chips */
+.type-chips { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding: 2px 1px 6px; flex-shrink: 0; }
+.type-chips::-webkit-scrollbar { display: none; }
+.type-chip {
+  display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; height: 30px; padding: 0 11px;
+  border-radius: 999px; border: 1px solid var(--color-border); background: var(--color-background-surface);
+  font-size: 13px; color: var(--color-text-secondary); cursor: pointer; white-space: nowrap;
+  transition: background-color var(--duration-fast) var(--ease-standard), border-color var(--duration-fast), color var(--duration-fast);
+}
+.type-chip:hover { border-color: var(--color-border-emphasized); color: var(--color-text-primary); }
+.type-chip[aria-pressed="true"] { background: var(--color-text-heading); border-color: var(--color-text-heading); color: var(--color-background-surface); }
+.type-chip:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.type-chip .n { font-size: 12px; opacity: .7; font-variant-numeric: tabular-nums; }
+.type-chip .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dot, #9aa3b5); }
+.type-chip[data-type="pdf"] { --dot: #e5484d; }
+.type-chip[data-type="word"] { --dot: #2f6fde; }
+.type-chip[data-type="excel"] { --dot: #1f9d55; }
+.type-chip[data-type="slides"] { --dot: #f0802a; }
+.type-chip[data-type="image"] { --dot: #9b5de5; }
+.type-chip[data-type="text"] { --dot: #64748b; }
+.type-chip[data-type="email"] { --dot: #0ea5a4; }
+.type-chip[data-type="archive"] { --dot: #a16207; }
+.type-chip[data-type="media"] { --dot: #db2777; }
+.type-chip[data-type="other"] { --dot: #9aa3b5; }
+:root[data-type-filter="off"] .type-chips { display: none; }

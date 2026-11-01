@@ -48,6 +48,8 @@ const state = {
   status: null, kind: "", results: [], selected: -1, detailId: null, seq: 0,
   // paging: what the list was searched with, total (null = still counting), more pages?
   page: null, total: null, approx: false, hasMore: false, loadingMore: false, moreError: false,
+  // file type filter: chosen groups ("pdf", "word" …) and the counts for the current search
+  types: [], facets: null, facetsKey: "",
 };
 const isSide = () => document.documentElement.dataset.detailMode === "side";
 
@@ -320,7 +322,8 @@ async function search() {
     return;
   }
   searchAbort = new AbortController();
-  state.page = { q, kind: state.kind, sort: prefs.sortBy };
+  const types = typeFilterOn() ? state.types.join(",") : "";
+  state.page = { q, kind: state.kind, sort: prefs.sortBy, types };
   const params = new URLSearchParams({ ...state.page, limit: prefs.resultLimit, offset: 0 });
   try {
     const data = await api(`/api/search?${params}`, { signal: searchAbort.signal });
@@ -333,11 +336,57 @@ async function search() {
     if (isSide() && state.selected >= 0) showDetail(state.results[0].id);
     else hideDetail();
     if (data.total == null) scheduleCount(seq);
+    loadTypeCounts(seq);
   } catch (e) {
     if (e.name === "AbortError") return;
     if (e.status === 401) return showLogin();
     toast(e.message);
   }
+}
+
+// ------------------------------------------------------- file type filter
+const typeFilterOn = () => prefs.typeFilter && (state.kind === "" || state.kind === "file");
+let facetsAbort = null;
+
+/** Counts per file type for the current words (refetched only when they change). */
+async function loadTypeCounts(seq) {
+  if (!typeFilterOn()) { renderTypeChips(); return; }
+  const q = $("#q").value.trim();
+  const key = `${state.kind}|${q}`;
+  if (key === state.facetsKey && state.facets) { renderTypeChips(); return; }
+  facetsAbort?.abort();
+  facetsAbort = new AbortController();
+  try {
+    const f = await api(`/api/search/facets?${new URLSearchParams({ q, kind: state.kind })}`, { signal: facetsAbort.signal });
+    if (seq !== state.seq) return;
+    state.facets = f;
+    state.facetsKey = key;
+    renderTypeChips();
+  } catch (e) { /* aborted or failed: the list works without the chips */ }
+}
+
+function renderTypeChips() {
+  const box = $("#type-chips");
+  const f = state.facets;
+  if (!typeFilterOn() || !f) { box.classList.add("hidden"); return; }
+  const chosen = new Set(state.types);
+  const keys = f.order.filter((k) => f.counts[k] || chosen.has(k));
+  if (!keys.length && !chosen.size) { box.classList.add("hidden"); return; }
+  const chip = (key, label, count, pressed, onclick) => el("button", {
+    type: "button", class: "type-chip", "data-type": key, "aria-pressed": String(pressed), onclick,
+  }, key ? el("span", { class: "dot" }) : null, label,
+  count != null ? el("span", { class: "n" }, `${Number(count).toLocaleString()}${f.approx ? "+" : ""}`) : null);
+  box.replaceChildren(
+    chip("", "ทุกประเภท", null, !chosen.size, () => setTypes([])),
+    ...keys.map((k) => chip(k, f.labels[k], f.counts[k] || 0, chosen.has(k),
+      () => setTypes(chosen.has(k) ? state.types.filter((t) => t !== k) : [...state.types, k]))));
+  box.classList.remove("hidden");
+}
+
+function setTypes(types) {
+  state.types = types;
+  renderTypeChips();
+  search();
 }
 
 /** Ask for the total a moment after the user stops typing (counting can take a while). */
@@ -590,12 +639,13 @@ async function showDetail(id) {
       btn("คัดลอก path", () => copy(item.path, "คัดลอก path แล้ว"), "secondary", "copy"),
       item.uploaded ? btn("ลบไฟล์", () => deleteItem(item), "danger", "trash") : null));
     const isImage = /\.(png|jpe?g|gif|webp|bmp)$/i.test(item.title);
-    if (isImage) parts.push(el("img", { class: "preview", src: `/api/files/${item.id}/preview`, alt: item.title, loading: "lazy" }));
-    parts.push(item.content
-      ? el("pre", {}, highlight(item.content.slice(0, 20000).trimStart(), t))
-      : el("p", { class: "secondary" }, isImage || /\.(tiff?)$/i.test(item.title)
-        ? "ไม่พบข้อความในรูปนี้ (หรือยังอ่านไม่ถึง: การอ่านข้อความในรูปทำเบื้องหลังหลังสแกนเสร็จ)"
-        : "ไม่มีเนื้อหาที่อ่านได้ (ค้นได้จากชื่อไฟล์)"));
+    parts.push(detailBody(
+      isImage ? el("img", { class: "preview", src: `/api/files/${item.id}/preview`, alt: item.title, loading: "lazy" }) : null,
+      item.content
+        ? el("pre", {}, highlight(item.content.slice(0, 20000).trimStart(), t))
+        : el("p", { class: "secondary" }, isImage || /\.(tiff?)$/i.test(item.title)
+          ? "ไม่พบข้อความในรูปนี้ (หรือยังอ่านไม่ถึง: การอ่านข้อความในรูปทำเบื้องหลังหลังสแกนเสร็จ)"
+          : "ไม่มีเนื้อหาที่อ่านได้ (ค้นได้จากชื่อไฟล์)")));
     box.append(...parts.map((p, i) => withReveal(p, i)));
     return;
   }
@@ -622,14 +672,21 @@ async function showDetail(id) {
     parts.push(el("div", { class: "actions" },
       btn("คัดลอกรหัสผ่าน", async () => { const p = await revealPassword(item.id); if (p != null) copy(p, "คัดลอกรหัสผ่านแล้ว"); }, "primary", "copy")));
   }
-  if (item.tags && item.tags.length) parts.push(el("ul", { class: "chips" }, item.tags.map((tag) => el("li", { class: "chip" }, `#${tag}`))));
-  if (item.content) parts.push(el("pre", {}, highlight(item.content, t)));
   parts.push(el("div", { class: "sub" }, `แก้ไขล่าสุด ${fmtDate(item.updated_at)}`));
   parts.push(el("div", { class: "actions" },
     item.kind === "note" ? btn("ดูเนื้อหา", () => openViewer(item), "secondary", "lines") : null,
     btn("แก้ไข", () => editItem(item.id), "secondary", "edit"),
     btn("ลบ", () => deleteItem(item), "danger", "trash")));
+  const tags = item.tags && item.tags.length
+    ? el("ul", { class: "chips" }, item.tags.map((tag) => el("li", { class: "chip" }, `#${tag}`))) : null;
+  if (tags || item.content) parts.push(detailBody(tags, item.content ? el("pre", {}, highlight(item.content, t)) : null));
   box.append(...parts.map((p, i) => withReveal(p, i)));
+}
+
+// The long part of the details (content, picture). It scrolls on its own, so
+// the name, size, date and buttons above it always stay in view.
+function detailBody(...children) {
+  return el("div", { class: "detail-body" }, ...children.filter(Boolean));
 }
 
 function withReveal(node, i) {
@@ -965,29 +1022,10 @@ $("#viewer-code").addEventListener("click", (e) => {
 window.addEventListener("resize", () => { if (viewerOpen()) { viewer.lastKey = ""; scheduleRender(); } });
 
 // ------------------------------------------------------------------ guide
-/** "น้องคาหน" — CAHON's mascot: a round blob peeking through a magnifier
+/** "น้องคาหน" — CAHON's mascot: a little round blob holding a magnifier
     (static/brand/mascot.svg; classes drive the blink/bob/wave animations). */
 function mascotSvg() {
-  return '<svg viewBox="0 0 512 512" aria-hidden="true">' +
-    '<ellipse cx="262" cy="470" rx="150" ry="16" fill="#1d2b53" opacity=".12"/>' +
-    '<g stroke="#1d2b53" stroke-width="14" stroke-linecap="round" stroke-linejoin="round">' +
-    '<path d="M200 440q-6 22-34 22" fill="none"/><path d="M300 444q8 20 36 18" fill="none"/>' +
-    '<g transform="rotate(-6 262 300)"><path d="M112 302C112 170 190 108 270 108C362 108 424 178 424 300C424 402 352 452 266 452C176 452 112 402 112 302Z" fill="#7be0b5"/>' +
-    '<path d="M244 110C236 76 266 62 276 90" fill="none"/><path d="M114 300q-34 6-40 44" fill="none"/></g></g>' +
-    '<path d="M150 246C160 190 198 160 238 150" stroke="#fff" stroke-width="14" stroke-linecap="round" fill="none" opacity=".75"/>' +
-    '<g class="eye"><circle cx="186" cy="268" r="23" fill="#1d2b53"/><circle cx="193" cy="260" r="8" fill="#fff"/></g>' +
-    '<ellipse cx="166" cy="330" rx="21" ry="12" fill="#ff8fa3" opacity=".85"/>' +
-    '<path d="M214 352Q246 386 280 350" stroke="#1d2b53" stroke-width="13" stroke-linecap="round" fill="#7a1f3d"/>' +
-    '<path d="M236 366q8 26 26 14q8-8 0-18z" fill="#ff6b8b"/>' +
-    '<g class="handle">' +
-    '<path d="M350 366L440 456" stroke="#1d2b53" stroke-width="46" stroke-linecap="round"/>' +
-    '<path d="M350 366L440 456" stroke="#ff8a3d" stroke-width="26" stroke-linecap="round"/>' +
-    '<path d="M378 394l14 14" stroke="#ffd15c" stroke-width="8" stroke-linecap="round"/>' +
-    '<circle cx="314" cy="268" r="94" fill="#1d2b53"/><circle cx="314" cy="268" r="73" fill="#eaf6ff"/>' +
-    '<g class="eye"><circle cx="322" cy="274" r="51" fill="#1d2b53"/><circle cx="342" cy="252" r="17" fill="#fff"/><circle cx="304" cy="298" r="8" fill="#fff"/></g>' +
-    '<path d="M262 218a72 72 0 0 1 62-22" stroke="#fff" stroke-width="10" stroke-linecap="round" fill="none" opacity=".95"/>' +
-    '<path d="M352 352q34 6 28 40" stroke="#1d2b53" stroke-width="14" stroke-linecap="round" fill="#7be0b5"/>' +
-    '<circle cx="376" cy="388" r="15" fill="#7be0b5" stroke="#1d2b53" stroke-width="12"/></g></svg>';
+  return '<svg viewBox="0 0 64 64" aria-hidden="true"><ellipse cx="31" cy="59" rx="15" ry="1.8" fill="#000" opacity=".07"/><path d="M31 11.5q-1.2-4.6 3-5.6" stroke="#5cc39a" stroke-width="2.4" stroke-linecap="round" fill="none"/><path d="M9 37C9 21 19 11 31 11S53 21 53 37C53 50 44 56.5 31 56.5S9 50 9 37Z" fill="var(--mascot-body)"/><path d="M15.5 29c1.6-5.6 5.4-9.4 10.5-11" stroke="#fff" stroke-width="2.4" stroke-linecap="round" fill="none" opacity=".75"/><g class="eye"><ellipse cx="24" cy="35" rx="2.4" ry="3.1" fill="#262626"/><ellipse cx="38" cy="35" rx="2.4" ry="3.1" fill="#262626"/></g><ellipse cx="19.5" cy="40.8" rx="2.8" ry="1.6" fill="#ff8fa3" opacity=".5"/><ellipse cx="42.5" cy="40.8" rx="2.8" ry="1.6" fill="#ff8fa3" opacity=".5"/><path d="M28.5 40.5q2.5 2.6 5 0" stroke="#262626" stroke-width="2" stroke-linecap="round" fill="none"/><g class="handle"><circle cx="47.5" cy="46.5" r="6.8" fill="#fff" fill-opacity=".6" stroke="var(--mascot-ring)" stroke-width="3"/><path d="M52.4 51.4l5.4 5.4" stroke="var(--mascot-ring)" stroke-width="4" stroke-linecap="round"/></g></svg>';
 }
 document.querySelectorAll(".mascot").forEach((m) => { m.innerHTML = mascotSvg(); }); // static, trusted markup
 
@@ -1212,7 +1250,9 @@ function applyPreset(next, message) {
 }
 
 function onPrefsChanged(before) {
-  if (!before || before.recent !== prefs.recent || before.resultLimit !== prefs.resultLimit || before.sortBy !== prefs.sortBy) search();
+  if (!before || before.recent !== prefs.recent || before.resultLimit !== prefs.resultLimit || before.sortBy !== prefs.sortBy
+      || (before.typeFilter !== prefs.typeFilter && state.types.length)) search();
+  if (before && before.typeFilter !== prefs.typeFilter) { state.facetsKey = ""; loadTypeCounts(state.seq); }
   updateSortLabel();
   if (!before || before.filters !== prefs.filters) {
     if (prefs.filters === "hidden" && state.kind) setKind(""); // hidden filter must not keep filtering
@@ -1302,6 +1342,8 @@ function pageDisplay() {
       pref("ไอคอนประเภท", null, seg("icons", [["large", "ใหญ่"], ["small", "เล็ก"], ["none", "ซ่อน"]])),
       pref("ข้อความตัวอย่าง", "ส่วนของเนื้อหาที่ตรงกับคำค้น", sw("snippets", "ข้อความตัวอย่าง")),
       pref("รายการล่าสุด", "แสดงรายการล่าสุดก่อนเริ่มพิมพ์", sw("recent", "รายการล่าสุด")),
+      pref("ตัวกรองประเภทไฟล์", "ปุ่ม PDF · Word · Excel · PowerPoint · รูปภาพ … เหนือรายการ พร้อมจำนวนที่เจอ เลือกได้หลายประเภท",
+        sw("typeFilter", "ตัวกรองประเภทไฟล์")),
     ]),
     group("แถบและปุ่มเสริม", [
       pref("แถบสถานะการสแกน", "มุมซ้ายล่างระหว่างสแกน พร้อมปุ่มหยุด", sw("scanIndicator", "แถบสถานะการสแกน")),
@@ -1724,6 +1766,7 @@ async function showMain() {
 
 function setKind(kind) {
   state.kind = kind;
+  state.facetsKey = "";
   document.querySelectorAll("#filters [data-kind]").forEach((c) => c.classList.toggle("active", c.dataset.kind === kind));
   search();
 }
