@@ -26,6 +26,7 @@ const DEFAULT_PREFS = Object.freeze({
   icons: "large",         // large | small | none
   snippets: true,         // text excerpt under results while searching
   recent: true,           // show recent items before typing
+  typeFilter: true,       // file type chips (PDF, Word, Excel …) above the results
   footer: true,           // shortcuts + status bar
   vaultButton: true,      // lock/unlock button next to search
   scanIndicator: true,    // floating scan progress with a stop button
@@ -40,7 +41,7 @@ const PREF_PRESETS = Object.freeze({
   full: DEFAULT_PREFS,
   minimal: Object.freeze({
     ...DEFAULT_PREFS, layout: "clean", filters: "hidden", detail: "drawer", icons: "small",
-    footer: false, vaultButton: false, scanIndicator: true,
+    footer: false, vaultButton: false, scanIndicator: true, typeFilter: false,
   }),
 });
 
@@ -79,7 +80,7 @@ function applyPrefs(prefs) {
   for (const key of ["theme", "fontSize", "radius", "density", "font", "layout", "filters", "detail", "icons"]) {
     root.dataset[key] = prefs[key];
   }
-  for (const key of ["motion", "snippets", "recent", "footer", "vaultButton", "scanIndicator"]) {
+  for (const key of ["motion", "snippets", "recent", "footer", "vaultButton", "scanIndicator", "typeFilter"]) {
     root.dataset[key] = prefs[key] ? "on" : "off";
   }
   // A side column only fits on wide screens; otherwise details open as a drawer.

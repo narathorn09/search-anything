@@ -26,7 +26,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from .db import Database
 from .extractors import MAX_TEXT_CHARS, SUPPORTED, is_plain_text_type
 from .textview import LineIndex, LineIndexCache
-from . import ocr
+from . import filetypes, ocr
 from .indexer import Indexer, ScanSettings
 from .worker import ProcessIndexer
 from .resources import CONTAINER, CPU_COUNT, PROFILES, ram_limits_mb
@@ -339,22 +339,31 @@ def create_app(config: Config) -> FastAPI:
     @app.get("/api/search", dependencies=[Depends(require_auth)])
     def search(q: str = "", kind: Literal["", "all", "file", "note", "bookmark", "password"] | None = None,
                limit: int = 50, offset: int = 0,
-               sort: Literal["relevance", "newest", "oldest", "name", "name_desc", "largest", "type"] = "relevance"):
+               sort: Literal["relevance", "newest", "oldest", "name", "name_desc", "largest", "type"] = "relevance",
+               types: str = ""):
         """One page of results. ``total`` is None when not counted yet (ask /api/search/count)."""
         kind = kind or None if kind != "all" else None
         limit = max(1, min(limit, 200))
         offset = max(0, offset)
         terms = q.split()
-        page = db.page(q, kind, sort, offset, limit)
+        page = db.page(q, kind, sort, offset, limit, filetypes.parse(types))
         return {"query": q, "offset": offset, "total": page["total"], "approx": page["approx"],
                 "has_more": page["has_more"], "results": [serialize(r, terms) for r in page["results"]]}
 
     @app.get("/api/search/count", dependencies=[Depends(require_auth)])
     def search_count(q: str = "", kind: Literal["", "all", "file", "note", "bookmark", "password"] | None = None,
-                     sort: Literal["relevance", "newest", "oldest", "name", "name_desc", "largest", "type"] = "relevance"):
+                     sort: Literal["relevance", "newest", "oldest", "name", "name_desc", "largest", "type"] = "relevance",
+                     types: str = ""):
         """Total number of results. Bounded in time: ``approx`` means "at least"."""
         kind = kind or None if kind != "all" else None
-        return db.count(q, kind, sort)
+        return db.count(q, kind, sort, filetypes.parse(types))
+
+    @app.get("/api/search/facets", dependencies=[Depends(require_auth)])
+    def search_facets(q: str = "", kind: Literal["", "all", "file", "note", "bookmark", "password"] | None = None):
+        """Matching files per type group (PDF, Word …), for the type filter chips."""
+        kind = kind or None if kind != "all" else None
+        result = db.facets(q, kind)
+        return {**result, "labels": filetypes.LABELS, "order": filetypes.KEYS}
 
     # ------------------------------------------------------------ items
     @app.get("/api/items/{item_id}", dependencies=[Depends(require_auth)])
