@@ -1,4 +1,5 @@
-//! Fast text extraction for Search Anything.
+//! Fast text extraction for Search Anything (docx, xlsx, pptx and the old
+//! doc, xls, ppt).
 //!
 //! Produces exactly the same text as the Python extractors in
 //! `search_anything/extractors.py` (openpyxl, python-docx, python-pptx), but
@@ -7,6 +8,7 @@
 //! are identical.
 
 pub mod docx;
+pub mod legacy;
 pub mod ooxml;
 pub mod pptx;
 pub mod xlsx;
@@ -84,8 +86,29 @@ mod python {
         run(py, move || crate::pptx::extract(&path, cap))
     }
 
+    /// Text of an old .xls workbook (same as the Python/xlrd reader).
+    #[pyfunction]
+    fn xls_text(py: Python<'_>, path: String, cap: usize) -> PyResult<String> {
+        run(py, move || crate::xlsx::extract_xls(&path, cap))
+    }
+
+    /// Text of an old .doc document (same as search_anything/legacy.py).
+    #[pyfunction]
+    fn doc_text(py: Python<'_>, path: String, cap: usize) -> PyResult<String> {
+        run(py, move || crate::legacy::doc(&path, cap))
+    }
+
+    /// Text of an old .ppt presentation (same as search_anything/legacy.py).
+    #[pyfunction]
+    fn ppt_text(py: Python<'_>, path: String, cap: usize) -> PyResult<String> {
+        run(py, move || crate::legacy::ppt(&path, cap))
+    }
+
     #[pymodule]
     fn sa_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
+        m.add_function(wrap_pyfunction!(xls_text, m)?)?;
+        m.add_function(wrap_pyfunction!(doc_text, m)?)?;
+        m.add_function(wrap_pyfunction!(ppt_text, m)?)?;
         m.add_function(wrap_pyfunction!(xlsx_text, m)?)?;
         m.add_function(wrap_pyfunction!(docx_text, m)?)?;
         m.add_function(wrap_pyfunction!(pptx_text, m)?)?;
