@@ -24,8 +24,8 @@ place = s.place
 # ── cold open: the system search ───────────────────────────────────────────
 for i in range(9):  # "สัญญาเช่า" typed
     place(wood(175 + rng.uniform(-20, 20), 0.08), 0.35 + i / 11, 0.12 * rng.uniform(0.7, 1.2), -0.05, 0.15)
-for k in range(8):  # the spinner ticking
-    place(glass(1760, 0.12, 0.2), 1.05 + k * 0.1, 0.03, 0.2, 0.2)
+for k in range(3):  # the spinner ticking, then nothing
+    place(glass(1760, 0.12, 0.2), 1.1 + k * 0.25, 0.03, 0.2, 0.05)
 place(sub(52, 0.9), 1.85, 0.5, 0.0, 0.35)  # "ไม่พบรายการ"
 for i, t in enumerate((2.0, 2.3, 2.6)):  # the three questions
     place(sub(78 - i * 6, 0.45), t, 0.38, 0.0, 0.25)
@@ -55,7 +55,7 @@ place(air(0.7, 200, 1800, 1.1, 0.5), 27.4, 0.35, 0.0, 0.6)  # pull back
 place(bubble(380, 0.3), LAND, 0.36, 0.3, 0.3)                # the mascot lands on the box
 for i in range(5):                                           # C A H O N
     place(wood(210 + i * 12, 0.08), WRITE + i * 0.09, 0.22, -0.1 + i * 0.05, 0.2)
-place(sub(48, 1.4), WRITE + 0.45, 0.45, 0.0, 0.45)
+place(sub(48, 1.2), WRITE + 0.45, 0.45, 0.0, 0.3)
 
 # ── music, from ENTER ──────────────────────────────────────────────────────
 BPM = 120
@@ -96,13 +96,13 @@ prog = [["C4", "E4", "G4"], ["A3", "C4", "E4"], ["F3", "A3", "C4"], ["G3", "B3",
 bar = 4 * BEAT
 t = ENTER
 k = 0
-REST = (9.6, 10.6)  # the dead-still hold: the music breathes out
+RESTS = ((9.55, 10.75), (13.65, 14.9), (20.25, 21.5))  # the holds and the OCR wait: the music stops, the room goes quiet
 while t < WRITE - 0.01:
     chord = [note(n) for n in prog[k % 4]]
     add(t, pad(chord, bar + 0.2), 0, 0.022)
     for b in range(8):
         tb = t + b * BEAT / 2
-        if REST[0] <= tb < REST[1] or tb >= WRITE:
+        if any(a <= tb < b for a, b in RESTS) or tb >= WRITE:
             continue
         add(tb, tone(chord[b % 3] * 2, 0.4, 9), -0.3 if b % 2 else 0.3, 0.05)
         if b % 2 == 0:
@@ -112,7 +112,11 @@ while t < WRITE - 0.01:
     t += bar
     k += 1
 for i, n in enumerate(("C3", "G3", "E4", "G4", "C5")):  # the name: a last chord that rings out
-    add(WRITE + 0.45 + i * 0.03, tone(note(n), 3.0, 1.1, 0.2), (i - 2) * 0.2, 0.08)
-music *= np.minimum(1, (DUR - t_all) / 1.2)[:, None].clip(0, 1)
+    add(WRITE + 0.45 + i * 0.03, tone(note(n), 2.0, 2.2, 0.2), (i - 2) * 0.2, 0.08)
+music *= np.clip((30.6 - t_all) / 1.2, 0, 1)[:, None]  # the last chord dies away to silence
+gate = np.ones(n_total)  # the holds: everything musical fades out and back
+for a, b in RESTS:
+    gate *= 1 - np.clip(np.minimum((t_all - a) / 0.15, (b - t_all) / 0.15), 0, 1)
+music *= gate[:, None]
 s.dry += music
 s.write(os.path.join(HERE, "sfx.wav"), peak_db=-3.5)
