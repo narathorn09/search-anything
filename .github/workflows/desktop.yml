@@ -1,0 +1,166 @@
+name: Desktop installers
+
+# Builds the Windows installer (.exe) and macOS disk images (.dmg, Apple
+# silicon and Intel), with OCR (Tesseract + Thai) and the Rust readers inside,
+# then runs each built app once (tools/smoke_desktop.py).
+#
+# Releasing: on main, `python tools/release.py X.Y.Z`, then push main and the
+# tag vX.Y.Z. A tag publishes a GitHub release only when it matches
+# search_anything/__version__ and its commit is on main; the desktop app's
+# in-app updater installs the newest release.
+
+on:
+  push:
+    branches: [main, dev, "claude/**"]
+    tags: ["v*"]
+    paths-ignore: ["**.md", "docs/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  TESSDATA: https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/main
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Version (and, for a release tag, check it)
+        run: |
+          APP_VERSION=$(python -c "import re,pathlib;print(re.search(r'__version__ = \"([^\"]+)\"', pathlib.Path('search_anything/__init__.py').read_text()).group(1))")
+          echo "APP_VERSION=$APP_VERSION" >> "$GITHUB_ENV"
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            [ "${GITHUB_REF_NAME#v}" = "$APP_VERSION" ] || { echo "tag $GITHUB_REF_NAME does not match __version__ $APP_VERSION"; exit 1; }
+            git fetch --no-tags origin main
+            git merge-base --is-ancestor "$GITHUB_SHA" origin/main || { echo "release tags must point at a commit on main"; exit 1; }
+          fi
+      - name: Python packages, Rust readers
+        run: |
+          python -m pip install --upgrade pip
+          # Wheels only for cryptography: a source build links the system OpenSSL,
+          # which clashes with the one PyInstaller bundles (seen on Intel Macs).
+          pip install --only-binary=cryptography -r requirements.txt pyinstaller pywebview
+          pip install ./native
+          python -c "import sa_native; print('sa_native', sa_native.__version__)"
+      - name: Tesseract (OCR) with Thai
+        shell: pwsh
+        run: |
+          choco install tesseract -y --no-progress
+          $src = "C:\Program Files\Tesseract-OCR"
+          $dst = "packaging\build\tesseract"
+          New-Item -ItemType Directory -Force "$dst\tessdata\configs" | Out-Null
+          Copy-Item "$src\tesseract.exe" $dst
+          Copy-Item "$src\*.dll" $dst
+          Copy-Item "$src\tessdata\configs\txt", "$src\tessdata\configs\tsv" "$dst\tessdata\configs"
+          foreach ($lang in "eng", "tha") {
+            Invoke-WebRequest "$env:TESSDATA/$lang.traineddata" -OutFile "$dst\tessdata\$lang.traineddata"
+          }
+          & "$dst\tesseract.exe" --version
+          & "$dst\tesseract.exe" --tessdata-dir "$dst\tessdata" --list-langs
+      - name: Build app
+        run: |
+          python packaging/make_icon.py packaging/build/icons
+          pyinstaller packaging/search-anything.spec --noconfirm --distpath dist --workpath build
+      - name: Smoke test
+        run: python tools/smoke_desktop.py "dist/Search Anything/Search Anything.exe"
+      - name: Installer (Inno Setup)
+        shell: pwsh
+        run: |
+          if (-not (Get-Command iscc -ErrorAction SilentlyContinue)) { choco install innosetup -y --no-progress }
+          $iscc = (Get-Command iscc -ErrorAction SilentlyContinue).Source
+          if (-not $iscc) { $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" }
+          & $iscc "/DAppVersion=$env:APP_VERSION" "/DSourceDir=..\..\dist\Search Anything" packaging\windows\installer.iss
+          Get-ChildItem dist\*.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SearchAnything-windows
+          path: dist/SearchAnything-Setup-*.exe
+          if-no-files-found: error
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/SearchAnything-Setup-*.exe
+
+  macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Version (and, for a release tag, check it)
+        run: |
+          APP_VERSION=$(python -c "import re,pathlib;print(re.search(r'__version__ = \"([^\"]+)\"', pathlib.Path('search_anything/__init__.py').read_text()).group(1))")
+          echo "APP_VERSION=$APP_VERSION" >> "$GITHUB_ENV"
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            [ "${GITHUB_REF_NAME#v}" = "$APP_VERSION" ] || { echo "tag $GITHUB_REF_NAME does not match __version__ $APP_VERSION"; exit 1; }
+            git fetch --no-tags origin main
+            git merge-base --is-ancestor "$GITHUB_SHA" origin/main || { echo "release tags must point at a commit on main"; exit 1; }
+          fi
+      - name: Python packages, Rust readers
+        run: |
+          python -m pip install --upgrade pip
+          # Wheels only for cryptography: a source build links the system OpenSSL,
+          # which clashes with the one PyInstaller bundles (seen on Intel Macs).
+          pip install --only-binary=cryptography -r requirements.txt pyinstaller pywebview
+          pip install ./native
+          python -c "import sa_native; print('sa_native', sa_native.__version__)"
+      - name: Tesseract (OCR) with Thai, made self-contained
+        run: |
+          brew install tesseract dylibbundler
+          dst=packaging/build/tesseract
+          mkdir -p "$dst/tessdata/configs" "$dst/libs"
+          cp "$(brew --prefix tesseract)/bin/tesseract" "$dst/tesseract"
+          chmod u+w "$dst/tesseract"
+          # Copy its libraries next to it and point the binary at them.
+          dylibbundler -cd -of -b -x "$dst/tesseract" -d "$dst/libs" -p @executable_path/libs/
+          codesign --force -s - "$dst"/libs/*.dylib "$dst/tesseract"
+          cp "$(brew --prefix tesseract)/share/tessdata/configs/txt" "$(brew --prefix tesseract)/share/tessdata/configs/tsv" "$dst/tessdata/configs/"
+          for lang in eng tha; do curl -fsSL "$TESSDATA/$lang.traineddata" -o "$dst/tessdata/$lang.traineddata"; done
+          TESSDATA_PREFIX="$dst/tessdata" "$dst/tesseract" --list-langs
+          otool -L "$dst/tesseract" | head
+      - name: Build app
+        run: |
+          python packaging/make_icon.py packaging/build/icons
+          pyinstaller packaging/search-anything.spec --noconfirm --distpath dist --workpath build
+          codesign --force --deep -s - "dist/Search Anything.app"
+      - name: Smoke test
+        run: python tools/smoke_desktop.py "dist/Search Anything.app/Contents/MacOS/Search Anything"
+      - name: Disk image
+        run: |
+          mkdir -p dmg
+          cp -R "dist/Search Anything.app" dmg/
+          ln -s /Applications dmg/Applications
+          hdiutil create -volname "Search Anything" -srcfolder dmg -ov -format UDZO \
+            "dist/SearchAnything-${APP_VERSION}-macos-${{ matrix.arch }}.dmg"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SearchAnything-macos-${{ matrix.arch }}
+          path: dist/SearchAnything-*.dmg
+          if-no-files-found: error
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/SearchAnything-*.dmg

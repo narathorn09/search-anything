@@ -212,3 +212,10 @@ def test_images_are_read_by_default_and_photos_without_text_add_nothing(tmp_path
     body = db.get_item(texture["id"], 100000)["body"]
     assert ocr.MARK not in body  # nothing confident enough: no OCR text at all
     assert db.ocr_summary()["none"] == 1
+
+
+def test_merge_passes_adds_only_new_lines():
+    first = "ใบแจ้งหนี้ เลขที่ 42\nยอดรวม 1,250 บาท"
+    second = "ใบแจ้งหนี้ เลขที่ 42\nกรุณาชำระภายในวันที่ 15\n| a \\\nยอดรวม 1,250 บาท"
+    assert ocr.merge_passes(first, second) == first + "\nกรุณาชำระภายในวันที่ 15"
+    assert ocr.merge_passes(first, "") == first
