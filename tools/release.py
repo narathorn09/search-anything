@@ -40,7 +40,7 @@ def main() -> int:
         return 1
     INIT.write_text(re.sub(r'__version__ = "[^"]+"', f'__version__ = "{version}"', INIT.read_text()))
     git("commit", "-am", f"Release v{version}")
-    git("tag", "-a", f"v{version}", "-m", f"Search Anything {version}")
+    git("tag", "-a", f"v{version}", "-m", f"CAHON {version}")
     print(f"Ready. Publish with:\n\n    git push origin main v{version}\n")
     return 0
 

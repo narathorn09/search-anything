@@ -1,4 +1,4 @@
-# Search Anything — server mode image.
+# CAHON — server mode image.
 # Data (notes, passwords, uploads, index) lives in /data: mount a persistent
 # volume there, or it is lost when the container is replaced.
 # Stage 1: the Rust text readers (native/), built as a Python wheel.

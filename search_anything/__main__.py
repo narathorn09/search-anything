@@ -109,7 +109,7 @@ def main(argv: list[str] | None = None) -> None:
     sys.setswitchinterval(0.001)
     app = create_app(config)
     url = f"http://{'localhost' if host in ('127.0.0.1', '0.0.0.0') else host}:{args.port}"
-    print(f"Search Anything ({args.mode} mode) -> {url}   (Ctrl+C to stop)", flush=True)
+    print(f"CAHON ({args.mode} mode) -> {url}   (Ctrl+C to stop)", flush=True)
     if args.open_browser:
         threading.Thread(target=_open_when_ready, args=(url,), daemon=True).start()
     uvicorn.run(app, host=host, port=args.port, log_level="warning")

@@ -170,7 +170,7 @@ def test_server_mode_requires_login_and_supports_upload(tmp_path):
 
 def test_ui_served(tmp_path):
     c = make_client(tmp_path)
-    assert "Search Anything" in c.get("/").text
+    assert "CAHON" in c.get("/").text
     assert c.get("/static/app.js").status_code == 200
 
 

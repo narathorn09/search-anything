@@ -15,11 +15,11 @@
 ทำครั้งเดียวต่อเวอร์ชัน (หรือให้ CI ทำ) ที่โฟลเดอร์โปรเจกต์:
 
 ```bash
-docker build -t registry.company.com/search-anything:1.0 .
+docker build -t registry.company.com/cahon:1.0 .
 ```
 
 ```bash
-docker push registry.company.com/search-anything:1.0
+docker push registry.company.com/cahon:1.0
 ```
 
 เปลี่ยน `registry.company.com` เป็น registry จริงของบริษัท
@@ -35,7 +35,7 @@ docker push registry.company.com/search-anything:1.0
    - `storageClassName:` → (ไม่ใส่ก็ได้ จะใช้ค่าเริ่มต้นของ cluster) **ห้ามใช้ NFS** ถามทีม IT ว่าใช้ตัวไหน เช่น `longhorn`
 2. ใน Rancher เข้า cluster → ปุ่ม **Import YAML** (มุมขวาบน)
 3. เลือก namespace → วางเนื้อหาไฟล์ → **Import**
-4. ไปที่ **Workloads → Deployments** รอให้ `search-anything` เป็นสถานะ **Active**
+4. ไปที่ **Workloads → Deployments** รอให้ `cahon` เป็นสถานะ **Active**
 5. เปิดชื่อเว็บที่ตั้งไว้ แล้วล็อกอินด้วยรหัสผ่านจากข้อ 1
 
 ---
@@ -52,7 +52,7 @@ docker push registry.company.com/search-anything:1.0
 
 ### 2. เก็บรหัสผ่าน (Secret)
 **Storage → Secrets → Create → Opaque**
-- Name: `search-anything-secret`
+- Name: `cahon-secret`
 - Key: `SA_PASSWORD` · Value: รหัสผ่านสำหรับล็อกอิน
 
 ### 3. สร้างตัวแอป (Deployment)
@@ -60,11 +60,11 @@ docker push registry.company.com/search-anything:1.0
 
 | แท็บ / หัวข้อ | ตั้งค่า |
 |---|---|
-| Name | `search-anything` |
+| Name | `cahon` |
 | Replicas | **1** (ต้องเป็น 1 เท่านั้น) |
 | Container Image | image จากขั้นที่ 0 |
 | Ports → Add Port | Name `http`, Private Container Port `8765`, TCP, Service Type **Cluster IP** |
-| Environment Variables → Add Variable | Type **Secret key**: Variable `SA_PASSWORD` ← secret `search-anything-secret` key `SA_PASSWORD` |
+| Environment Variables → Add Variable | Type **Secret key**: Variable `SA_PASSWORD` ← secret `cahon-secret` key `SA_PASSWORD` |
 | Environment Variables → Add Variable | Type Key/Value: `SA_HTTPS_COOKIE` = `1` (ถ้าเข้าเว็บผ่าน HTTPS) |
 | Resources | CPU Reservation `250m`, CPU Limit `2000m`, Memory Reservation `512Mi`, **Memory Limit `1536Mi`** |
 | Health Check | Readiness และ Liveness: HTTP request, Path `/api/status`, Port `8765` |
@@ -86,7 +86,7 @@ docker push registry.company.com/search-anything:1.0
 ## เช็กว่าข้อมูลไม่หาย
 
 1. ล็อกอิน → เพิ่มโน้ตสักอัน
-2. ใน Rancher: Deployment `search-anything` → เมนู **⋮ → Redeploy**
+2. ใน Rancher: Deployment `cahon` → เมนู **⋮ → Redeploy**
 3. รอ Active แล้วเปิดเว็บใหม่ → โน้ตต้องยังอยู่
 
 ---

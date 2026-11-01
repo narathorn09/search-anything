@@ -1536,7 +1536,7 @@ function pollUpdate() {
 function pageAbout() {
   const s = state.status;
   const u = s.update;
-  const rows = [pref("เวอร์ชันที่ใช้อยู่", "Search Anything", el("strong", {}, s.version || "—"))];
+  const rows = [pref("เวอร์ชันที่ใช้อยู่", "CAHON (คาหน) · ค้นหาทุกอย่างในช่องเดียว", el("strong", {}, s.version || "—"))];
   if (!u) {
     rows.push(pref("อัปเดต", s.in_container
       ? "รันใน Docker: ดึงโค้ดใหม่ (git pull) แล้วรันสคริปต์ start อีกครั้ง"

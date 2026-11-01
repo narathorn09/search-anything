@@ -114,7 +114,7 @@ def _new_fastapi() -> FastAPI:
     its built-in OpenTelemetry hooks switched off (newer FastAPI versions; they
     send nothing unless configured, but this app never wants them)."""
     os.environ.setdefault("OTEL_SDK_DISABLED", "true")
-    kwargs = dict(title="Search Anything", docs_url=None, redoc_url=None, openapi_url=None)
+    kwargs = dict(title="CAHON", docs_url=None, redoc_url=None, openapi_url=None)
     try:
         return FastAPI(**kwargs, telemetry={"tracing": False, "metrics": False, "logs": False,
                                             "auto_configure": False})

@@ -1,6 +1,6 @@
 """Run a built desktop app and check it really works (used by CI on Windows/macOS).
 
-    python tools/smoke_desktop.py "dist/Search Anything/Search Anything.exe"
+    python tools/smoke_desktop.py "dist/CAHON/CAHON.exe"
 
 Starts the app with a temporary home folder (Documents = tests/fixtures) in
 browser mode, waits for the first scan and OCR, then searches Thai words from

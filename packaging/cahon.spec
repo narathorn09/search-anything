@@ -1,11 +1,11 @@
 # PyInstaller spec for the desktop app (Windows, macOS; Linux for testing).
 #
 #   python packaging/make_icon.py packaging/build/icons
-#   pyinstaller packaging/search-anything.spec --noconfirm
+#   pyinstaller packaging/cahon.spec --noconfirm
 #
 # Optional: packaging/build/tesseract/ (tesseract executable + its libraries
 # + tessdata/ with eng and tha) is copied into the app; CI fills it in.
-# Output: dist/Search Anything/ (folder app) and, on macOS, dist/Search Anything.app
+# Output: dist/CAHON/ (folder app) and, on macOS, dist/CAHON.app
 
 import re
 import sys
@@ -16,7 +16,7 @@ from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, co
 ROOT = Path(SPECPATH).parent
 BUILD = ROOT / "packaging" / "build"
 VERSION = re.search(r'__version__ = "([^"]+)"', (ROOT / "search_anything" / "__init__.py").read_text()).group(1)
-APP = "Search Anything"
+APP = "CAHON"
 ICON = BUILD / "icons" / ("icon.ico" if sys.platform.startswith("win") else "icon.icns")
 
 datas = [(str(ROOT / "search_anything" / "static"), "search_anything/static")]
@@ -60,6 +60,7 @@ if sys.platform == "darwin":
         coll,
         name=f"{APP}.app",
         icon=str(ICON) if ICON.exists() else None,
+        # Kept from the earlier name: macOS keeps the folder permissions it was given.
         bundle_identifier="app.searchanything.desktop",
         info_plist={
             "CFBundleName": APP,

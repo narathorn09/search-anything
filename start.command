@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Search Anything — one-step start for macOS (also works on Linux).
+# CAHON — one-step start for macOS (also works on Linux).
 #   Double-click this file in Finder, or run:  ./start.command
 #
 # Runs in Docker when Docker is installed and running, otherwise in a Python
@@ -15,8 +15,10 @@ cd "$(dirname "$0")"
 say() { printf '\n\033[1m%s\033[0m\n' "$*"; }
 PORT="${SA_PORT:-8765}"
 URL="http://localhost:$PORT"
-NAME="search-anything"
-IMAGE="search-anything:local"
+NAME="cahon"
+IMAGE="cahon:local"
+OLD_NAME="search-anything"  # the container under the earlier name
+VOLUME="search-anything-data"  # earlier name kept: it holds your data
 
 USE="auto"
 FOLDERS=()
@@ -96,7 +98,7 @@ run_venv() {
   if ! command -v tesseract >/dev/null 2>&1 && [ ! -x /opt/homebrew/bin/tesseract ] && [ ! -x /usr/local/bin/tesseract ]; then
     echo "Tip: to search scanned PDFs (OCR), install Tesseract:  brew install tesseract tesseract-lang   (or run with Docker)"
   fi
-  say "Starting Search Anything (Python)…   data: ./data   stop: Ctrl+C"
+  say "Starting CAHON (Python)…   data: ./data   stop: Ctrl+C"
   ARGS=(--port "$PORT" --open-browser)
   if [ ${#FOLDERS[@]} -eq 0 ]; then ARGS+=(--default-folders); else for f in "${FOLDERS[@]}"; do ARGS+=(--folder "$f"); done; fi
   exec .venv/bin/python -m search_anything "${ARGS[@]}" ${APP_ARGS[@]+"${APP_ARGS[@]}"}
@@ -130,11 +132,11 @@ run_docker() {
   done
   SA_FOLDERS_IN="$(IFS=:; echo ${INNER[@]+"${INNER[*]}"})"
 
-  docker rm -f "$NAME" >/dev/null 2>&1 || true
-  say "Starting Search Anything (Docker)…   data: Docker volume search-anything-data   stop: Ctrl+C"
+  docker rm -f "$NAME" "$OLD_NAME" >/dev/null 2>&1 || true
+  say "Starting CAHON (Docker)…   data: Docker volume $VOLUME   stop: Ctrl+C"
   # Port published on 127.0.0.1 only: reachable from this computer, not the network.
   docker run -d --rm --init --name "$NAME" -p "127.0.0.1:$PORT:8765" \
-    -v search-anything-data:/data \
+    -v "$VOLUME":/data \
     -e SA_MODE=local -e SA_HOST=0.0.0.0 -e SA_IN_CONTAINER=1 \
     -e SA_FOLDERS="$SA_FOLDERS_IN" -e SA_PATH_MAP="$MAP" \
     ${MOUNTS[@]+"${MOUNTS[@]}"} "$IMAGE" python -m search_anything ${APP_ARGS[@]+"${APP_ARGS[@]}"} >/dev/null

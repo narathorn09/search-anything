@@ -78,9 +78,9 @@ jobs:
       - name: Build app
         run: |
           python packaging/make_icon.py packaging/build/icons
-          pyinstaller packaging/search-anything.spec --noconfirm --distpath dist --workpath build
+          pyinstaller packaging/cahon.spec --noconfirm --distpath dist --workpath build
       - name: Smoke test
-        run: python tools/smoke_desktop.py "dist/Search Anything/Search Anything.exe"
+        run: python tools/smoke_desktop.py "dist/CAHON/CAHON.exe"
       - name: Clipboard (copy button in the app window)
         run: python tools/check_clipboard.py
       - name: Installer (Inno Setup)
@@ -89,12 +89,12 @@ jobs:
           if (-not (Get-Command iscc -ErrorAction SilentlyContinue)) { choco install innosetup -y --no-progress }
           $iscc = (Get-Command iscc -ErrorAction SilentlyContinue).Source
           if (-not $iscc) { $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" }
-          & $iscc "/DAppVersion=$env:APP_VERSION" "/DSourceDir=..\..\dist\Search Anything" packaging\windows\installer.iss
+          & $iscc "/DAppVersion=$env:APP_VERSION" "/DSourceDir=..\..\dist\CAHON" packaging\windows\installer.iss
           Get-ChildItem dist\*.exe
       - uses: actions/upload-artifact@v4
         with:
-          name: SearchAnything-windows
-          path: dist/SearchAnything-Setup-*.exe
+          name: CAHON-windows
+          path: dist/CAHON-Setup-*.exe
           if-no-files-found: error
 
   macos:
@@ -148,23 +148,23 @@ jobs:
       - name: Build app
         run: |
           python packaging/make_icon.py packaging/build/icons
-          pyinstaller packaging/search-anything.spec --noconfirm --distpath dist --workpath build
-          codesign --force --deep -s - "dist/Search Anything.app"
+          pyinstaller packaging/cahon.spec --noconfirm --distpath dist --workpath build
+          codesign --force --deep -s - "dist/CAHON.app"
       - name: Smoke test
-        run: python tools/smoke_desktop.py "dist/Search Anything.app/Contents/MacOS/Search Anything"
+        run: python tools/smoke_desktop.py "dist/CAHON.app/Contents/MacOS/CAHON"
       - name: Clipboard (copy button in the app window)
         run: python tools/check_clipboard.py
       - name: Disk image
         run: |
           mkdir -p dmg
-          cp -R "dist/Search Anything.app" dmg/
+          cp -R "dist/CAHON.app" dmg/
           ln -s /Applications dmg/Applications
-          hdiutil create -volname "Search Anything" -srcfolder dmg -ov -format UDZO \
-            "dist/SearchAnything-${APP_VERSION}-macos-${{ matrix.arch }}.dmg"
+          hdiutil create -volname "CAHON" -srcfolder dmg -ov -format UDZO \
+            "dist/CAHON-${APP_VERSION}-macos-${{ matrix.arch }}.dmg"
       - uses: actions/upload-artifact@v4
         with:
-          name: SearchAnything-macos-${{ matrix.arch }}
-          path: dist/SearchAnything-*.dmg
+          name: CAHON-macos-${{ matrix.arch }}
+          path: dist/CAHON-*.dmg
           if-no-files-found: error
 
   release:
@@ -188,7 +188,7 @@ jobs:
           fi
       - uses: actions/download-artifact@v4
         with:
-          pattern: SearchAnything-*
+          pattern: CAHON-*
           path: dist
           merge-multiple: true
       - name: Publish the release
@@ -196,6 +196,6 @@ jobs:
         with:
           tag_name: v${{ env.VERSION }}
           target_commitish: ${{ github.sha }}
-          name: Search Anything ${{ env.VERSION }}
+          name: CAHON ${{ env.VERSION }}
           generate_release_notes: true
           files: dist/*

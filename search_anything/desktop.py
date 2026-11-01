@@ -3,8 +3,9 @@
 * Opens the app in its own window (pywebview: Edge WebView2 on Windows,
   WebKit on macOS). If that is not possible it opens the default browser.
 * Data lives in the user's app-data folder, not next to the program:
-  Windows %LOCALAPPDATA%\\SearchAnything, macOS ~/Library/Application
-  Support/Search Anything, Linux ~/.local/share/search-anything.
+  Windows %LOCALAPPDATA%\\CAHON, macOS ~/Library/Application Support/CAHON,
+  Linux ~/.local/share/cahon. (Folders of the earlier name, Search Anything,
+  are moved there on first start.)
 * Only one copy runs: starting it again just shows the running one.
 * Local mode only (no login), listening on 127.0.0.1.
 * In the installed app, Tesseract (OCR) ships inside the bundle.
@@ -23,20 +24,57 @@ import urllib.request
 import webbrowser
 from pathlib import Path
 
-APP_NAME = "Search Anything"
+APP_NAME = "CAHON"
 PREFERRED_PORT = 8765
 log = logging.getLogger("search_anything.desktop")
 
 
-def data_dir() -> Path:
-    if os.environ.get("SA_DATA_DIR"):
-        return Path(os.environ["SA_DATA_DIR"]).expanduser()
+def _data_dirs() -> tuple[Path, Path]:
+    """(folder for CAHON, folder the app used under its earlier name)."""
     if sys.platform.startswith("win"):
         base = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
-        return base / "SearchAnything"
+        return base / "CAHON", base / "SearchAnything"
     if sys.platform == "darwin":
-        return Path.home() / "Library" / "Application Support" / APP_NAME
-    return Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share") / "search-anything"
+        base = Path.home() / "Library" / "Application Support"
+        return base / "CAHON", base / "Search Anything"
+    base = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share")
+    return base / "cahon", base / "search-anything"
+
+
+def data_dir() -> Path:
+    """The app's data folder. Data of the earlier name (v1.0.0, "Search
+    Anything") is moved here once, so notes, passwords and the index stay."""
+    if os.environ.get("SA_DATA_DIR"):
+        return Path(os.environ["SA_DATA_DIR"]).expanduser()
+    new, old = _data_dirs()
+    if not new.exists() and old.is_dir():
+        try:
+            old.rename(new)
+        except OSError as exc:  # in use or not allowed: keep using it where it is
+            logging.getLogger(__name__).warning("could not move %s to %s: %s", old, new, exc)
+            return old
+    return new
+
+
+def remove_old_windows_install() -> None:
+    """Windows: the v1.0.0 installer put the app in ...\\Programs\\Search Anything.
+    Once CAHON runs from its own folder, remove that one and its shortcuts."""
+    if not (sys.platform.startswith("win") and getattr(sys, "frozen", False)):
+        return
+    import shutil
+
+    base = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
+    old = base / "Programs" / "Search Anything"
+    here = Path(sys.executable).resolve().parent
+    if old.is_dir() and old.resolve() != here:
+        shutil.rmtree(old, ignore_errors=True)
+    appdata = Path(os.environ.get("APPDATA") or Path.home() / "AppData" / "Roaming")
+    shutil.rmtree(appdata / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Search Anything", ignore_errors=True)
+    for desktop in (Path.home() / "Desktop", Path(os.environ.get("USERPROFILE", "")) / "OneDrive" / "Desktop"):
+        try:
+            (desktop / "Search Anything.lnk").unlink()
+        except OSError:
+            pass
 
 
 def bundle_dir() -> Path | None:
@@ -232,8 +270,9 @@ def main() -> None:
     from .updater import cleanup_downloads
 
     cleanup_downloads(folder)  # installers of versions already installed
+    remove_old_windows_install()
 
-    log.info("Search Anything %s (desktop) at %s, data in %s; Rust readers: %s; OCR: %s",
+    log.info("CAHON %s (desktop) at %s, data in %s; Rust readers: %s; OCR: %s",
              __version__, url, folder, NATIVE, engine().info())
     updater = app.state.updater
     updater.on_quit = lambda: _quit(server)

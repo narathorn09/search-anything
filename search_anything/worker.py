@@ -214,7 +214,7 @@ class ProcessIndexer(Indexer):
     def _run_worker(self, args: dict, hard_ram: int, restarts: int, careful: bool) -> dict:
         parent, child = _CTX.Pipe(duplex=False)
         proc = _CTX.Process(target=worker_main, args=(args, child, self._stop), daemon=True,
-                            name="search-anything-scan")
+                            name="cahon-scan")
         proc.start()
         child.close()
         self.worker_pid = proc.pid
